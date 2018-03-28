@@ -1,5 +1,5 @@
 from gym import utils
-from gym_banana.envs import fetch_env
+from gym_blocks.envs import fetch_env
 
 # class FetchPickAndPlaceEnv(fetch_env.FetchEnv, utils.EzPickle):
 #     def __init__(self, reward_type='sparse'):

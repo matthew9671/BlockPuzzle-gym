@@ -16,9 +16,9 @@ pip install -e .
 
 ```
 import gym
-import gym_banana
+import gym_blocks
 
-env = gym.make('Banana-v0')
+env = gym.make('haha-v0')
 ```
 
 See https://github.com/matthiasplappert/keras-rl/tree/master/examples for some
