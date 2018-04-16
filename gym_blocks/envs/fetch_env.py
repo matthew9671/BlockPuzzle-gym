@@ -11,6 +11,8 @@ GREEN = 2
 BLUE = 3
 COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
+MIN_BLOCK_DIST = 0.075
+
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.
     """
@@ -57,6 +59,14 @@ class BlocksEnv(robot_env.RobotEnv):
         super(BlocksEnv, self).__init__(
             model_path=model_path, n_substeps=n_substeps, n_actions=4,
             initial_qpos=initial_qpos)
+
+    # For curriculum learning
+    def increase_difficulty(self):
+        raise NotImplementedError()
+
+    # Configure the environment for testing
+    def set_test(self):
+        raise NotImplementedError()
 
     def _sample_colors(self):
         raise NotImplementedError()
@@ -208,16 +218,16 @@ class BlocksEnv(robot_env.RobotEnv):
         # self.sim.forward()
         pass
 
-    def _reset_sim(self):
+    def _reset_sim(self, test=False):
         self.sim.set_state(self.initial_state)
 
         # Randomize start position of each object.
-        self._randomize_objects()
+        self._randomize_objects(test)
         self.sim.forward()
         self.has_succeeded = False
         return True
 
-    def _randomize_objects(self):
+    def _randomize_objects(self, test=False):
         # for i in range(self.num_objs):
         #     object_xpos = self.initial_gripper_xpos[:2]
         #     while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
@@ -291,7 +301,7 @@ class GripperTouchEnv(BlocksEnv):
         #        |      |     |
         return [BLUE, GREY, GREEN]
 
-    def _randomize_objects(self):
+    def _randomize_objects(self, test=False):
         object_xpos = self.initial_gripper_xpos[:2]
         while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
             object_xpos = (self.initial_gripper_xpos[:2] + 
@@ -303,21 +313,38 @@ class GripperTouchEnv(BlocksEnv):
 
 class BlocksTouchEnv(BlocksEnv):
     """A very simple environment in which the gripper has to touch the block"""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, curriculum, *args, **kwargs):
         super(BlocksTouchEnv, self).__init__(*args, **kwargs, num_blocks=2)
         # utils.EzPickle.__init__(self)
-    
+        if curriculum:
+            self.obj_range = 0.08
+            self.obj_range_step = 0.025
+            self.max_obj_range = 0.2
+
+    def increase_difficulty(self):
+        self.obj_range += self.obj_range_step
+        self.obj_range = max(self.max_obj_range, self.obj_range)
+
     def _sample_colors(self):
         #     Gripper Table Block0 Block1
         #        |      |     |      |
         return [GREY, GREY, GREEN, BLUE]
 
-    def _randomize_objects(self):
+    def set_test(self):
+        self._randomize_objects(True)
+        return self._get_obs()
+
+    def _randomize_objects(self, test=False):
         object_xpos = self.initial_gripper_xpos[:2]
         # Set the position of the first block
-        while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
-            object_xpos = (self.initial_gripper_xpos[:2] + 
-                self.np_random.uniform(-self.obj_range, self.obj_range, size=2))
+        if test:
+            obj_range = self.max_obj_range
+        else:
+            obj_range = self.obj_range
+
+        # while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
+        object_xpos = (self.initial_gripper_xpos[:2] + 
+            self.np_random.uniform(-obj_range, obj_range, size=2))
         object_qpos = self.sim.data.get_joint_qpos('object0:joint')
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
@@ -325,9 +352,12 @@ class BlocksTouchEnv(BlocksEnv):
 
         object0_pos = object_xpos
         # Set the position of the second block
-        while np.linalg.norm(object_xpos - object0_pos) < 0.05:
-            object_xpos = (self.initial_gripper_xpos[:2] + 
-                self.np_random.uniform(-self.obj_range, self.obj_range, size=2))
+        # while np.linalg.norm(object_xpos - object0_pos) < 0.075:
+        direction = np.random.normal(size=2)
+        direction = direction / np.linalg.norm(direction)
+        mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
+        object_xpos = (object0_pos + direction * mag)
+        # print(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object1:joint')
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
@@ -344,7 +374,7 @@ class ToppleTowerEnv(BlocksEnv):
         #        |      |     |      |      |     |
         return [RED, GREEN, GREY,  GREY,  GREY,  BLUE]
 
-    def _randomize_objects(self):
+    def _randomize_objects(self, test=False):
         object_xpos = self.initial_gripper_xpos[:2]
         # Set the position of the first block
         while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:

@@ -23,3 +23,10 @@ register(
     kwargs={'reward_type': 'sparse'},
     max_episode_steps=50,
 )
+
+register(
+    id='BlocksTouchCurriculum-v0',
+    entry_point='gym_blocks.envs:BlocksTouchCurriculum',
+    kwargs={'reward_type': 'sparse'},
+    max_episode_steps=50,
+)
