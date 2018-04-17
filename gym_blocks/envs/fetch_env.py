@@ -352,11 +352,14 @@ class BlocksTouchEnv(BlocksEnv):
 
         object0_pos = object_xpos
         # Set the position of the second block
-        # while np.linalg.norm(object_xpos - object0_pos) < 0.075:
-        direction = np.random.normal(size=2)
-        direction = direction / np.linalg.norm(direction)
-        mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
-        object_xpos = (object0_pos + direction * mag)
+        out_of_table = True
+        while out_of_table:
+            direction = np.random.normal(size=2)
+            direction = direction / np.linalg.norm(direction)
+            mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
+            object_xpos = (object0_pos + direction * mag)
+            out_of_table = (np.linalg.norm(object_xpos 
+                - self.initial_gripper_xpos[:2]) > self.max_obj_range)
         # print(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object1:joint')
         assert object_qpos.shape == (7,)

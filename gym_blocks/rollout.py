@@ -51,6 +51,7 @@ class RolloutStudent:
         """
         obs = self.envs[i].reset()
         if test:
+            # Set difficulty to maximum
             obs = self.envs[i].unwrapped.set_test()
         self.initial_o[i] = obs['observation']
         self.initial_ag[i] = obs['achieved_goal']
@@ -118,12 +119,12 @@ class RolloutStudent:
                     if render:
                         self.envs[i].render()
                 except MujocoException as e:
-                    return self.generate_rollouts()
+                    return self.generate_rollouts(render, test)
 
             if np.isnan(o_new).any():
                 self.logger.warning('NaN caught during rollout generation. Trying again...')
-                self.reset_all_rollouts()
-                return self.generate_rollouts()
+                self.reset_all_rollouts(test)
+                return self.generate_rollouts(render, test)
 
             obs.append(o.copy())
             achieved_goals.append(ag.copy())

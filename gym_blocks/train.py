@@ -15,7 +15,7 @@ from baselines.her.util import mpi_fork
 
 import gym_blocks
 
-SUCCESS_THRESHOLD = 0.7
+SUCCESS_THRESHOLD = 0.05
 
 def mpi_average(value):
     if value == []:
@@ -49,7 +49,7 @@ def train(policy, rollout_worker, evaluator,
         # test
         evaluator.clear_history()
         for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts(render=True)
+            evaluator.generate_rollouts(render=False, test=True)
 
         # record logs
         logger.record_tabular('epoch', epoch)
@@ -65,10 +65,12 @@ def train(policy, rollout_worker, evaluator,
 
         # save the policy if it's better than the previous ones
         success_rate = mpi_average(evaluator.current_success_rate())
+        worker_success_rate = mpi_average(rollout_worker.current_success_rate())
 
-        if success_rate >= SUCCESS_THRESHOLD:
+        if worker_success_rate >= SUCCESS_THRESHOLD:
             print("Increasing difficulty!")
             rollout_worker.increase_difficulty()
+            # evaluator.increase_difficulty()
 
         if rank == 0 and success_rate >= best_success_rate and save_policies:
             best_success_rate = success_rate
