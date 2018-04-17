@@ -15,7 +15,7 @@ from baselines.her.util import mpi_fork
 
 import gym_blocks
 
-SUCCESS_THRESHOLD = 0.05
+SUCCESS_THRESHOLD = 0.7
 
 def mpi_average(value):
     if value == []:
