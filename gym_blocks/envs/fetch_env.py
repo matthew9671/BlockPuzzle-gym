@@ -344,7 +344,7 @@ class BlocksTouchEnv(BlocksEnv):
 
         # while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
         object_xpos = (self.initial_gripper_xpos[:2] + 
-            self.np_random.uniform(-obj_range, obj_range, size=2))
+            self.np_random.uniform(-obj_range/2, obj_range/2, size=2))
         object_qpos = self.sim.data.get_joint_qpos('object0:joint')
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
