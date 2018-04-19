@@ -9,7 +9,7 @@ from mpi4py import MPI
 from baselines import logger
 from baselines.common import set_global_seeds
 from baselines.common.mpi_moments import mpi_moments
-import baselines.her.experiment.config as config
+import config
 from rollout import RolloutStudent
 from baselines.her.util import mpi_fork
 

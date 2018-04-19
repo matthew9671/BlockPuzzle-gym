@@ -80,6 +80,26 @@ class BlocksTouchCurriculum(fetch_env.BlocksTouchEnv, utils.EzPickle):
             initial_qpos=initial_qpos, reward_type=reward_type)
         utils.EzPickle.__init__(self)
 
+class BlocksTouchAttentionEnv(fetch_env.BlocksTouchAttentionEnv, utils.EzPickle):
+    def __init__(self, reward_type='sparse'):
+        initial_qpos = {
+            'robot0:slide0': 0.405,
+            'robot0:slide1': 0.48,
+            'robot0:slide2': 0.0,
+            'table0:slide0': 1.05,
+            'table0:slide1': 0.4,
+            'table0:slide2': 0.0,
+            'object0:joint': [1.25, 0.55, 0.46, 1., 0., 0., 0.],
+            'object1:joint': [1.25, 0.58, 0.46, 1., 0., 0., 0.]
+        }
+        fetch_env.BlocksTouchAttentionEnv.__init__(
+            self, curriculum=True, model_path='fetch/2blocks.xml', has_object=True, 
+            block_gripper=True, n_substeps=20,
+            gripper_extra_height=0.2, target_in_the_air=True, target_offset=0.0,
+            obj_range=0.15, target_range=0.15, distance_threshold=0.05,
+            initial_qpos=initial_qpos, reward_type=reward_type)
+        utils.EzPickle.__init__(self)
+
 class ToppleTowerEnv(fetch_env.ToppleTowerEnv, utils.EzPickle):
     def __init__(self, reward_type='sparse'):
         initial_qpos = {
