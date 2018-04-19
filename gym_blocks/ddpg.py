@@ -107,13 +107,15 @@ class DDPG(object):
         return o, g
 
     def get_actions(self, o, ag, g, noise_eps=0., random_eps=0., use_target_net=False,
-                    compute_Q=False):
+                    compute_Q=False, compute_Attention=False):
         o, g = self._preprocess_og(o, ag, g)
         policy = self.target if use_target_net else self.main
         # values to compute
         vals = [policy.pi_tf]
         if compute_Q:
             vals += [policy.Q_pi_tf]
+        if compute_Attention:
+            vals += [policy.block_weights]
         # feed
         feed = {
             policy.o_tf: o.reshape(-1, self.dimo),

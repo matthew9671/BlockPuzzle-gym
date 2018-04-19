@@ -67,7 +67,7 @@ class RolloutStudent:
         for env in self.envs:
             env.unwrapped.increase_difficulty()
 
-    def generate_rollouts(self, render=False, test=False):
+    def generate_rollouts(self, render=False, test=False, compute_Attention=False):
         """Performs `rollout_batch_size` rollouts in parallel for time horizon `T` with the current
         policy acting on it accordingly.
         """
@@ -89,13 +89,21 @@ class RolloutStudent:
                 compute_Q=self.compute_Q,
                 noise_eps=self.noise_eps if not self.exploit else 0.,
                 random_eps=self.random_eps if not self.exploit else 0.,
-                use_target_net=self.use_target_net)
+                use_target_net=self.use_target_net,
+                compute_Attention=compute_Attention)
 
             if self.compute_Q:
-                u, Q = policy_output
-                Qs.append(Q)
+                if compute_Attention:
+                    u, Q, A = policy_output
+                    Qs.append(Q)
+                else:
+                    u, Q = policy_output
+                    Qs.append(Q)
             else:
-                u = policy_output
+                if compute_Attention:
+                    u, A = policy_output
+                else:
+                    u = policy_output
 
             if u.ndim == 1:
                 # The non-batched case should still have a reasonable shape.
@@ -118,6 +126,8 @@ class RolloutStudent:
                         info_values[idx][t, i] = info[key]
                     if render:
                         self.envs[i].render()
+                    if compute_Attention:
+                        print(A)
                 except MujocoException as e:
                     return self.generate_rollouts(render, test)
 

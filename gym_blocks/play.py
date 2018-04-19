@@ -4,7 +4,7 @@ import pickle
 
 from baselines import logger
 from baselines.common import set_global_seeds
-import baselines.her.experiment.config as config
+import config
 from rollout import RolloutStudent
 
 import gym_blocks
@@ -49,7 +49,7 @@ def main(policy_file, seed, n_test_rollouts, render):
     # Run evaluation.
     evaluator.clear_history()
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=True)
+        evaluator.generate_rollouts(render=True, test=True, compute_Attention=True)
 
     # record logs
     for key, val in evaluator.logs('test'):

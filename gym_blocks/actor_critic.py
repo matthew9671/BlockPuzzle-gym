@@ -1,8 +1,10 @@
 import tensorflow as tf
 from baselines.her.util import store_args, nn
 
-BLOCK_FEATURES = 25
+BLOCK_FEATURES = 15
+ENV_FEATURES = 10
 FEATURE_SIZE = 64
+ATTENTION_CNT = 2
 
 class AttentionActorCritic:
     @store_args
@@ -31,41 +33,52 @@ class AttentionActorCritic:
         o = self.o_stats.normalize(self.o_tf)
         g = self.g_stats.normalize(self.g_tf)
 
-        num_blocks = o.get_shape().as_list()[1] // BLOCK_FEATURES
+        num_blocks = (o.get_shape().as_list()[1] - ENV_FEATURES) // BLOCK_FEATURES
+
+        obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
+        obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
 
         # (?, ?, n)
-        obs = tf.reshape(o, [-1, num_blocks, BLOCK_FEATURES])
+        input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES])
 
-        block_mlp = [64]
-        for num_hidden in block_mlp:
-            obs = tf.layers.dense(obs, num_hidden, activation=tf.nn.relu)
-        obs = tf.layers.dense(obs, FEATURE_SIZE, activation=None)
+        to_concat = []
 
-        # Add all the blocks together
-        # (?, n)
-        sum_blocks = tf.reduce_sum(obs, axis=1)
-        sum_mlp = [64]
-        for num_hidden in sum_mlp:
-            sum_blocks = tf.layers.dense(sum_blocks, num_hidden, activation=tf.nn.relu)
+        for _ in range(ATTENTION_CNT):
+            block_mlp = [64, 64]
+            obs_blocks = input_blocks
+            # for num_hidden in block_mlp:
+            #     obs_blocks = tf.layers.dense(obs_blocks, num_hidden, activation=tf.nn.relu)
+            obs_blocks = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=None)
 
-        sum_blocks = tf.layers.dense(sum_blocks, FEATURE_SIZE, activation=None)
+            # Add all the blocks together
+            # (?, n)
+            sum_blocks = tf.reduce_sum(obs_blocks, axis=1)
+            sum_mlp = [64, 64]
+            # for num_hidden in sum_mlp:
+            #     sum_blocks = tf.layers.dense(sum_blocks, num_hidden, activation=tf.nn.relu)
 
-        # (?, 1, n)
-        attention = tf.expand_dims(sum_blocks, 1)
-        # (?, ?, n)
-        attention = tf.tile(attention, [1, num_blocks, 1])
-        # (?, ?)
-        weights = tf.reduce_sum(attention * obs, axis=2)
-        weights = tf.nn.softmax(weights, axis=1)
-        # (?, ?, 1)
-        weights = tf.expand_dims(weights, 2)
-        # (?, ?, n)
-        weights = tf.tile(weights, [1, 1, FEATURE_SIZE])
-        weighted = weights * obs
-        # (?, n)
-        gated_obs = tf.reduce_sum(weighted, axis=1)
+            sum_blocks = tf.layers.dense(sum_blocks, FEATURE_SIZE, activation=None)
 
-        input_pi = tf.concat(axis=1, values=[gated_obs, g])  # for actor
+            # (?, 1, n)
+            attention = tf.expand_dims(sum_blocks, 1)
+            # (?, ?, n)
+            attention = tf.tile(attention, [1, num_blocks, 1])
+            # (?, ?)
+            weights = tf.reduce_sum(attention * obs_blocks, axis=2)
+            weights = tf.nn.softmax(weights, axis=1)
+            self.block_weights = weights
+            # (?, ?, 1)
+            weights = tf.expand_dims(weights, 2)
+            # (?, ?, n)
+            weights = tf.tile(weights, [1, 1, FEATURE_SIZE])
+            weighted = weights * obs_blocks
+            # (?, n)
+            gated_obs = tf.reduce_sum(weighted, axis=1)
+            to_concat.append(gated_obs)
+
+        gated_obs = tf.concat(axis=1, values=to_concat)
+
+        input_pi = tf.concat(axis=1, values=[obs_env, gated_obs, g])  # for actor
 
         # Networks.
         with tf.variable_scope('pi'):
@@ -73,9 +86,9 @@ class AttentionActorCritic:
                 input_pi, [self.hidden] * self.layers + [self.dimu]))
         with tf.variable_scope('Q'):
             # for policy training
-            input_Q = tf.concat(axis=1, values=[gated_obs, g, self.pi_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, g, self.pi_tf / self.max_u])
             self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
             # for critic training
-            input_Q = tf.concat(axis=1, values=[gated_obs, g, self.u_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, g, self.u_tf / self.max_u])
             self._input_Q = input_Q  # exposed for tests
             self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)

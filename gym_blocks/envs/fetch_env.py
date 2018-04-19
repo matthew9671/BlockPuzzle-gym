@@ -394,8 +394,7 @@ class BlocksTouchAttentionEnv(BlocksTouchEnv):
             temp_rel_pos = temp_pos - grip_pos
             temp_velp -= grip_velp
 
-            block_obs = np.concatenate([
-                grip_pos, gripper_state, grip_velp, gripper_vel, temp_pos.ravel(), 
+            block_obs = np.concatenate([temp_pos.ravel(), 
                 temp_rel_pos.ravel(), temp_rot.ravel(),
                 temp_velp.ravel(), temp_velr.ravel(),
                 ])
@@ -412,6 +411,7 @@ class BlocksTouchAttentionEnv(BlocksTouchEnv):
         assert(self._check_goal())
         achieved_goal = self.achieved_goal.copy().ravel()
 
+        obs = np.concatenate([grip_pos, gripper_state, grip_velp, gripper_vel, obs])
         # Does order matter here? I think not ...
         # obs = np.concatenate([
         #     grip_pos, object_pos.ravel(), object_rel_pos.ravel(), gripper_state, object_rot.ravel(),
