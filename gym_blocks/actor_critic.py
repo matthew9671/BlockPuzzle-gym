@@ -4,7 +4,7 @@ from baselines.her.util import store_args, nn
 BLOCK_FEATURES = 15
 ENV_FEATURES = 10
 FEATURE_SIZE = 64
-ATTENTION_CNT = 2
+ATTENTION_CNT = 1
 
 class AttentionActorCritic:
     @store_args
@@ -63,9 +63,11 @@ class AttentionActorCritic:
             attention = tf.expand_dims(sum_blocks, 1)
             # (?, ?, n)
             attention = tf.tile(attention, [1, num_blocks, 1])
+            attention = tf.nn.l2_normalize(attention, axis=2)
             # (?, ?)
-            weights = tf.reduce_sum(attention * obs_blocks, axis=2)
-            weights = tf.nn.softmax(weights, axis=1)
+            norm_block_emb = tf.nn.l2_normalize(obs_blocks, axis=2)
+            weights = tf.reduce_sum(attention * norm_block_emb, axis=2)
+            # weights = tf.nn.softmax(weights, axis=1)
             self.block_weights = weights
             # (?, ?, 1)
             weights = tf.expand_dims(weights, 2)
