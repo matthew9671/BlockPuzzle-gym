@@ -1,0 +1,6 @@
+Fri Apr 20 20:15:50 2018
+ERROR: Expired activation key
+
+Fri Apr 20 20:22:58 2018
+ERROR: Invalid text in activation key
+

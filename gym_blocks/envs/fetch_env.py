@@ -13,11 +13,13 @@ COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
 MIN_BLOCK_DIST = 0.075
 
-TABLE_X = 0.25
-TABLE_Y = 0.35
+TABLE_X = 1.05
+TABLE_Y = 0.40
+TABLE_W = 0.25
+TABLE_H = 0.35
 
 def out_of_table(pos):
-    return abs(pos[0]) > TABLE_X or abs(pos[1]) > TABLE_Y
+    return abs(pos[0] - TABLE_X) > TABLE_W or abs(pos[1] - TABLE_Y) > TABLE_H
 
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.
@@ -386,7 +388,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
     """An environment in which the gripper has to make 
     blocks of the right colors touch"""
     def __init__(self, curriculum, *args, **kwargs):
-        super(BlocksTouchEnv, self).__init__(*args, **kwargs, num_blocks=2)
+        super(BlocksTouchChooseEnv, self).__init__(*args, **kwargs, num_blocks=3)
         # utils.EzPickle.__init__(self)
         if curriculum:
             self.obj_range = 0.08
@@ -417,7 +419,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         #              Block0 Block1 Block2
         #                |      |     |
         blockcolors = [GREEN, BLUE, GREY]
-        np.random.shuffle(blockcolors)
+        #np.random.shuffle(blockcolors)
         #     Gripper Table 
         #        |      |   
         return [GREY, GREY] + blockcolors
@@ -449,6 +451,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         # Set the position of the first block (blue)
         do = True
         while do:
+            #print(self.initial_gripper_xpos[:2])
             object_xpos = (self.initial_gripper_xpos[:2] + 
                 self.np_random.uniform(-obj_range, obj_range, size=2))
             do = out_of_table(object_xpos)
