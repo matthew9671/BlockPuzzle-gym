@@ -113,9 +113,10 @@ class RobotEnv(gym.GoalEnv):
         simulation), this method should indicate such a failure by returning False.
         In such a case, this method will be called again to attempt a the reset again.
         """
-        self.sim.set_state(self.initial_state)
-        self.sim.forward()
-        return True
+        # self.sim.set_state(self.initial_state)
+        # self.sim.forward()
+        # return True
+        raise NotImplementedError()
 
     def _get_obs(self):
         """Returns the observation.

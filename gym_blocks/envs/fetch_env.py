@@ -13,6 +13,12 @@ COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
 MIN_BLOCK_DIST = 0.075
 
+TABLE_X = 0.25
+TABLE_Y = 0.35
+
+def out_of_table(pos):
+    return abs(pos[0]) > TABLE_X or abs(pos[1]) > TABLE_Y
+
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.
     """
@@ -220,8 +226,9 @@ class BlocksEnv(robot_env.RobotEnv):
 
     def _reset_sim(self, test=False):
         self.sim.set_state(self.initial_state)
-
-        # Randomize start position of each object.
+        # Randomize colors for each object
+        self.obj_colors = self._sample_colors()
+        # Randomize start position of each object
         self._randomize_objects(test)
         self.sim.forward()
         self.has_succeeded = False
@@ -312,10 +319,9 @@ class GripperTouchEnv(BlocksEnv):
         self.sim.data.set_joint_qpos('object0:joint', object_qpos)
 
 class BlocksTouchEnv(BlocksEnv):
-    """A very simple environment in which the gripper has to touch the block"""
+    """A simple environment in which the gripper has to make two blocks touch"""
     def __init__(self, curriculum, *args, **kwargs):
         super(BlocksTouchEnv, self).__init__(*args, **kwargs, num_blocks=2)
-        # utils.EzPickle.__init__(self)
         if curriculum:
             self.obj_range = 0.08
             self.obj_range_step = 0.025
@@ -323,7 +329,7 @@ class BlocksTouchEnv(BlocksEnv):
 
     def increase_difficulty(self):
         self.obj_range += self.obj_range_step
-        self.obj_range = max(self.max_obj_range, self.obj_range)
+        self.obj_range = min(self.max_obj_range, self.obj_range)
 
     def _sample_colors(self):
         #     Gripper Table Block0 Block1
@@ -352,19 +358,111 @@ class BlocksTouchEnv(BlocksEnv):
 
         object0_pos = object_xpos
         # Set the position of the second block
-        out_of_table = True
-        while out_of_table:
+        do = True
+        while do:
             direction = np.random.normal(size=2)
             direction = direction / np.linalg.norm(direction)
             mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
             object_xpos = (object0_pos + direction * mag)
-            out_of_table = (np.linalg.norm(object_xpos 
-                - self.initial_gripper_xpos[:2]) > self.max_obj_range)
+            do = out_of_table(object_xpos)
         # print(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object1:joint')
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object1:joint', object_qpos)
+
+class BlocksTouchChooseEnv(BlocksEnv):
+    """An environment in which the gripper has to make 
+    blocks of the right colors touch"""
+    def __init__(self, curriculum, *args, **kwargs):
+        super(BlocksTouchEnv, self).__init__(*args, **kwargs, num_blocks=2)
+        # utils.EzPickle.__init__(self)
+        if curriculum:
+            self.obj_range = 0.08
+            self.obj_range_step = 0.025
+            self.wrong_obj_range = 0.1
+            self.wrong_obj_range_step = 0.01
+            self.max_obj_range = 0.2
+        else:
+            self.wrong_obj_range = 0
+            self.max_obj_range = 0.2
+
+    def increase_difficulty(self):
+        self.obj_range += self.obj_range_step
+        self.obj_range = min(self.max_obj_range, self.obj_range)
+        self.wrong_obj_range -= self.wrong_obj_range_step
+        self.wrong_obj_range = max(0, self.wrong_obj_range)
+
+    def _sample_colors(self):
+        #              Block0 Block1 Block2
+        #                |      |     |
+        blockcolors = [GREEN, BLUE, GREY]
+        np.random.shuffle(blockcolors)
+        #     Gripper Table 
+        #        |      |   
+        return [GREY, GREY] + blockcolors
+
+    def set_test(self):
+        self._randomize_objects(True)
+        return self._get_obs()
+
+    def _randomize_objects(self, test=False):
+        object_xpos = self.initial_gripper_xpos[:2]
+        # Get the relevant parameters for setting up the environment
+        # If we are testing, then use the hardest set of parameters 
+        if test:
+            obj_range = self.max_obj_range
+            wrong_obj_range = 0
+        else:
+            obj_range = self.obj_range
+            wrong_obj_range = self.wrong_obj_range
+        # Find the block indices corresponding to each color
+        for i in range(3):
+            if self.obj_colors[i+2] == BLUE:
+                blue = i
+            elif self.obj_colors[i+2] == GREEN:
+                green = i
+            else:
+                # In the choose environment this is the grey block
+                # and in the fail environment this is the red block
+                wrong = i
+        # Set the position of the first block (blue)
+        do = True
+        while do:
+            object_xpos = (self.initial_gripper_xpos[:2] + 
+                self.np_random.uniform(-obj_range, obj_range, size=2))
+            do = out_of_table(object_xpos)
+        object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(blue))
+        assert object_qpos.shape == (7,)
+        object_qpos[:2] = object_xpos
+        self.sim.data.set_joint_qpos('object{}:joint'.format(blue), object_qpos)
+
+        object0_pos = object_xpos
+        # Set the position of the second block (green)
+        do = True
+        while do:
+            direction = np.random.normal(size=2)
+            direction = direction / np.linalg.norm(direction)
+            mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
+            object_xpos = (object0_pos + direction * mag)
+            do = out_of_table(object_xpos)
+        object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(green))
+        assert object_qpos.shape == (7,)
+        object_qpos[:2] = object_xpos
+        self.sim.data.set_joint_qpos('object{}:joint'.format(green), object_qpos)
+        # Set the position of the second block (grey/red)
+        center_pos = (object0_pos + object_xpos) / 2.0
+        do = True
+        while do:
+            direction = np.random.normal(size=2)
+            direction = direction / np.linalg.norm(direction)
+            mag = np.random.uniform(wrong_obj_range, self.max_obj_range)
+            object_xpos = (center_pos + direction * mag)
+            do = out_of_table(object_xpos)
+        object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(wrong))
+        assert object_qpos.shape == (7,)
+        object_qpos[:2] = object_xpos
+        self.sim.data.set_joint_qpos('object{}:joint'.format(wrong), object_qpos)
 
 class BlocksTouchAttentionEnv(BlocksTouchEnv):
     # The observation is given block by block
