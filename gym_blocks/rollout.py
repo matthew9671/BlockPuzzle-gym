@@ -64,8 +64,13 @@ class RolloutStudent:
             self.reset_rollout(i, test)
 
     def increase_difficulty(self):
+        max_level = False
         for env in self.envs:
-            env.unwrapped.increase_difficulty()
+            max_level = env.unwrapped.increase_difficulty()
+        if not max_level:
+            return self.envs[0].unwrapped.get_difficulty()
+        else:
+            return None
 
     def generate_rollouts(self, render=False, test=False, compute_Attention=False):
         """Performs `rollout_batch_size` rollouts in parallel for time horizon `T` with the current

@@ -62,6 +62,8 @@ class BlocksEnv(robot_env.RobotEnv):
 
         self.has_succeeded = False
         self.id2obj = None
+        # For curriculum learning
+        self.difficulty = 0
         super(BlocksEnv, self).__init__(
             model_path=model_path, n_substeps=n_substeps, n_actions=4,
             initial_qpos=initial_qpos)
@@ -69,6 +71,9 @@ class BlocksEnv(robot_env.RobotEnv):
     # For curriculum learning
     def increase_difficulty(self):
         raise NotImplementedError()
+
+    def get_difficulty():
+        return self.difficulty
 
     # Configure the environment for testing
     def set_test(self):
@@ -327,9 +332,15 @@ class BlocksTouchEnv(BlocksEnv):
             self.obj_range_step = 0.025
             self.max_obj_range = 0.2
 
+    # Returns true if maximum difficulty reached
     def increase_difficulty(self):
         self.obj_range += self.obj_range_step
-        self.obj_range = min(self.max_obj_range, self.obj_range)
+        if self.obj_range > self.max_obj_range:
+            self.obj_range = self.max_obj_range
+            return True
+        else:
+            self.difficulty += 1
+            return False
 
     def _sample_colors(self):
         #     Gripper Table Block0 Block1
@@ -389,9 +400,18 @@ class BlocksTouchChooseEnv(BlocksEnv):
 
     def increase_difficulty(self):
         self.obj_range += self.obj_range_step
-        self.obj_range = min(self.max_obj_range, self.obj_range)
         self.wrong_obj_range -= self.wrong_obj_range_step
-        self.wrong_obj_range = max(0, self.wrong_obj_range)
+        
+        if self.obj_range > self.max_obj_range:
+            self.obj_range = self.max_obj_range
+            if self.wrong_obj_range < 0:
+                self.wrong_obj_range = 0
+                return True
+        else:
+            if self.wrong_obj_range < 0:
+                self.wrong_obj_range = 0
+        self.difficulty += 1
+        return False
 
     def _sample_colors(self):
         #              Block0 Block1 Block2

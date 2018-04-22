@@ -68,8 +68,9 @@ def train(policy, rollout_worker, evaluator,
         worker_success_rate = mpi_average(rollout_worker.current_success_rate())
 
         if worker_success_rate >= SUCCESS_THRESHOLD:
-            print("Increasing difficulty!")
-            rollout_worker.increase_difficulty()
+            level = rollout_worker.increase_difficulty()
+            if level != None:
+                logger.info("Difficulty increased to level {}!".format(level))
             # evaluator.increase_difficulty()
 
         if rank == 0 and success_rate >= best_success_rate and save_policies:
