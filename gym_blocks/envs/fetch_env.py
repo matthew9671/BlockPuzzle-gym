@@ -398,9 +398,9 @@ class BlocksTouchChooseEnv(BlocksEnv):
         if curriculum:
             self.obj_range = 0.08
             self.obj_range_step = 0.025
-            self.wrong_obj_range = 0.1
-            self.wrong_obj_range_step = 0.01
-            self.max_obj_range = 0.2
+            self.wrong_obj_range = 0.2
+            self.wrong_obj_range_step = 0.02
+            self.max_obj_range = 0.3
         else:
             self.wrong_obj_range = 0
             self.max_obj_range = 0.2
