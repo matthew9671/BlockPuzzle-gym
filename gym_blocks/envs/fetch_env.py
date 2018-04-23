@@ -74,7 +74,7 @@ class BlocksEnv(robot_env.RobotEnv):
     def increase_difficulty(self):
         raise NotImplementedError()
 
-    def get_difficulty():
+    def get_difficulty(self):
         return self.difficulty
 
     # Configure the environment for testing
