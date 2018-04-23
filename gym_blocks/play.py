@@ -49,7 +49,7 @@ def main(policy_file, seed, n_test_rollouts, render):
     # Run evaluation.
     evaluator.clear_history()
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=True, compute_Attention=True)
+        evaluator.generate_rollouts(render=True, test=True, compute_Attention=False)
 
     # record logs
     for key, val in evaluator.logs('test'):

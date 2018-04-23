@@ -11,15 +11,20 @@ GREEN = 2
 BLUE = 3
 COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
-MIN_BLOCK_DIST = 0.075
+BLOCK_SIZE = 0.05
+MIN_BLOCK_DIST = 1.5 * BLOCK_SIZE
 
-TABLE_X = 1.05
-TABLE_Y = 0.40
 TABLE_W = 0.25
 TABLE_H = 0.35
+TABLE_X = 1.05 + TABLE_W
+TABLE_Y = 0.40 + TABLE_H
+
+TABLE_W -= BLOCK_SIZE
+TABLE_H -= BLOCK_SIZE
 
 def out_of_table(pos):
-    return abs(pos[0] - TABLE_X) > TABLE_W or abs(pos[1] - TABLE_Y) > TABLE_H
+    # print(pos)
+    return (pos[0] - TABLE_X) > TABLE_W or (pos[1] - TABLE_Y) > TABLE_H
 
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.
@@ -474,6 +479,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object{}:joint'.format(green), object_qpos)
         # Set the position of the second block (grey/red)
+        object1_pos = object_xpos
         center_pos = (object0_pos + object_xpos) / 2.0
         do = True
         while do:
@@ -481,7 +487,9 @@ class BlocksTouchChooseEnv(BlocksEnv):
             direction = direction / np.linalg.norm(direction)
             mag = np.random.uniform(wrong_obj_range, self.max_obj_range)
             object_xpos = (center_pos + direction * mag)
-            do = out_of_table(object_xpos)
+            do = (out_of_table(object_xpos) 
+                or np.linalg.norm(object_xpos - object0_pos) < MIN_BLOCK_DIST
+                or np.linalg.norm(object_xpos - object1_pos) < MIN_BLOCK_DIST)
         object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(wrong))
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
