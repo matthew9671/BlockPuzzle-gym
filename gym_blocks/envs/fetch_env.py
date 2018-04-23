@@ -19,12 +19,12 @@ TABLE_H = 0.35
 TABLE_X = 1.05 + TABLE_W
 TABLE_Y = 0.40 + TABLE_H
 
-TABLE_W -= BLOCK_SIZE
-TABLE_H -= BLOCK_SIZE
+TABLE_W -= BLOCK_SIZE / 2
+TABLE_H -= BLOCK_SIZE / 2
 
 def out_of_table(pos):
     # print(pos)
-    return (pos[0] - TABLE_X) > TABLE_W or (pos[1] - TABLE_Y) > TABLE_H
+    return abs(pos[0] - TABLE_X) > TABLE_W or abs(pos[1] - TABLE_Y) > TABLE_H
 
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.

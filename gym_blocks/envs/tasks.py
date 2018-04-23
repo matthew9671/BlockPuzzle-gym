@@ -130,8 +130,8 @@ class BlocksTouchChooseCurriculum(fetch_env.BlocksTouchChooseEnv, utils.EzPickle
             'table0:slide0': 1.05,
             'table0:slide1': 0.4,
             'table0:slide2': 0.0,
-            'object0:joint': [1.25, 0.55, 0.46, 1., 0., 0., 0.],
-            'object1:joint': [1.25, 0.60, 0.46, 1., 0., 0., 0.],
+            'object0:joint': [1.075, 0.425, 0.46, 1., 0., 0., 0.],
+            'object1:joint': [1.3, 0.75, 0.46, 1., 0., 0., 0.],
             'object2:joint': [1.25, 0.65, 0.46, 1., 0., 0., 0.]
         }
         fetch_env.BlocksTouchChooseEnv.__init__(
