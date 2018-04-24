@@ -43,44 +43,45 @@ class AttentionActorCritic:
 
         to_concat = []
 
-        for _ in range(ATTENTION_CNT):
-            block_mlp = [64, 64]
-            obs_blocks = input_blocks
-            # for num_hidden in block_mlp:
-            #     obs_blocks = tf.layers.dense(obs_blocks, num_hidden, activation=tf.nn.relu)
-            obs_blocks = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=None)
+        with tf.variable_scope('Q'):
+            for _ in range(ATTENTION_CNT):
+                block_mlp = [64, 64]
+                obs_blocks = input_blocks
+                for num_hidden in block_mlp:
+                    obs_blocks = tf.layers.dense(obs_blocks, num_hidden, activation=tf.nn.relu)
+                obs_blocks = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=None)
 
-            # Add all the blocks together
-            # (?, n)
-            sum_blocks = tf.reduce_sum(obs_blocks, axis=1)
-            sum_mlp = [64, 64]
-            # for num_hidden in sum_mlp:
-            #     sum_blocks = tf.layers.dense(sum_blocks, num_hidden, activation=tf.nn.relu)
+                # Add all the blocks together
+                # (?, n)
+                sum_blocks = tf.reduce_sum(obs_blocks, axis=1)
+                sum_mlp = [64, 64]
+                for num_hidden in sum_mlp:
+                    sum_blocks = tf.layers.dense(sum_blocks, num_hidden, activation=tf.nn.relu)
 
-            sum_blocks = tf.layers.dense(sum_blocks, FEATURE_SIZE, activation=None)
+                sum_blocks = tf.layers.dense(sum_blocks, FEATURE_SIZE, activation=None)
 
-            # (?, 1, n)
-            attention = tf.expand_dims(sum_blocks, 1)
-            # (?, ?, n)
-            attention = tf.tile(attention, [1, num_blocks, 1])
-            attention = tf.nn.l2_normalize(attention, axis=2)
-            # (?, ?)
-            norm_block_emb = tf.nn.l2_normalize(obs_blocks, axis=2)
-            weights = tf.reduce_sum(attention * norm_block_emb, axis=2)
-            # weights = tf.nn.softmax(weights, axis=1)
-            self.block_weights = weights
-            # (?, ?, 1)
-            weights = tf.expand_dims(weights, 2)
-            # (?, ?, n)
-            weights = tf.tile(weights, [1, 1, FEATURE_SIZE])
-            weighted = weights * obs_blocks
-            # (?, n)
-            gated_obs = tf.reduce_sum(weighted, axis=1)
-            to_concat.append(gated_obs)
+                # (?, 1, n)
+                attention = tf.expand_dims(sum_blocks, 1)
+                # (?, ?, n)
+                attention = tf.tile(attention, [1, num_blocks, 1])
+                attention = tf.nn.l2_normalize(attention, axis=2)
+                # (?, ?)
+                norm_block_emb = tf.nn.l2_normalize(obs_blocks, axis=2)
+                weights = tf.reduce_sum(attention * norm_block_emb, axis=2)
+                # weights = tf.nn.softmax(weights, axis=1)
+                self.block_weights = weights
+                # (?, ?, 1)
+                weights = tf.expand_dims(weights, 2)
+                # (?, ?, n)
+                weights = tf.tile(weights, [1, 1, FEATURE_SIZE])
+                weighted = weights * obs_blocks
+                # (?, n)
+                gated_obs = tf.reduce_sum(weighted, axis=1)
+                to_concat.append(gated_obs)
 
-        gated_obs = tf.concat(axis=1, values=to_concat)
+            gated_obs = tf.concat(axis=1, values=to_concat)
 
-        input_pi = tf.concat(axis=1, values=[obs_env, gated_obs, g])  # for actor
+            input_pi = tf.concat(axis=1, values=[obs_env, gated_obs, g])  # for actor
 
         # Networks.
         with tf.variable_scope('pi'):
