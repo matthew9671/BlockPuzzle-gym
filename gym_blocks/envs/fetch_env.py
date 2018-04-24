@@ -175,6 +175,11 @@ class BlocksEnv(robot_env.RobotEnv):
 
         object_pos, object_rot, object_velp, object_velr, object_rel_pos = [], [], [], [], []
 
+        gripper_state = robot_qpos[-2:]
+        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
+
+        obs = []
+
         for i in range(self.num_objs-2):
             obj_name = 'object{}'.format(i)
             temp_pos = self.sim.data.get_site_xpos(obj_name)
@@ -187,31 +192,17 @@ class BlocksEnv(robot_env.RobotEnv):
             temp_rel_pos = temp_pos - grip_pos
             temp_velp -= grip_velp
 
-            object_pos = np.concatenate([object_pos, temp_pos.ravel()])
-            object_rot = np.concatenate([object_rot, temp_rot.ravel()])
-            object_velp = np.concatenate([object_velp, temp_velp.ravel()])
-            object_velr = np.concatenate([object_velr, temp_velr.ravel()])
-            object_rel_pos = np.concatenate([object_rel_pos, temp_rel_pos.ravel()])
-    
-        gripper_state = robot_qpos[-2:]
-        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
+            block_obs = np.concatenate([temp_pos.ravel(), 
+                temp_rel_pos.ravel(), temp_rot.ravel(),
+                temp_velp.ravel(), temp_velr.ravel(),
+                ])
 
-        # achieved_goal = np.squeeze(object_pos.copy())
+            obs = np.concatenate([obs, block_obs])
+
         assert(self._check_goal())
         achieved_goal = self.achieved_goal.copy().ravel()
 
-        # Does order matter here? I think not ...
-        # obs = np.concatenate([
-        #     grip_pos, object_pos.ravel(), object_rel_pos.ravel(), gripper_state, object_rot.ravel(),
-        #     object_velp.ravel(), object_velr.ravel(), grip_velp, gripper_vel,
-        # ])
-        obs = np.concatenate([
-            grip_pos, gripper_state, grip_velp, gripper_vel, object_pos.ravel(), 
-            object_rel_pos.ravel(), object_rot.ravel(),
-            object_velp.ravel(), object_velr.ravel(),
-        ])
-
-        # print(obs.shape)
+        obs = np.concatenate([grip_pos, gripper_state, grip_velp, gripper_vel, obs])
 
         return {
             'observation': obs.copy(),
@@ -247,14 +238,6 @@ class BlocksEnv(robot_env.RobotEnv):
         return True
 
     def _randomize_objects(self, test=False):
-        # for i in range(self.num_objs):
-        #     object_xpos = self.initial_gripper_xpos[:2]
-        #     while np.linalg.norm(object_xpos - self.initial_gripper_xpos[:2]) < 0.1:
-        #         object_xpos = self.initial_gripper_xpos[:2] + self.np_random.uniform(-self.obj_range, self.obj_range, size=2)
-        #     object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(i))
-        #     assert object_qpos.shape == (7,)
-        #     object_qpos[:2] = object_xpos
-        #     self.sim.data.set_joint_qpos('object{}:joint'.format(i), object_qpos)
         raise NotImplementedError()
 
     def _sample_goal(self):
@@ -338,6 +321,9 @@ class BlocksTouchEnv(BlocksEnv):
             self.obj_range = 0.08
             self.obj_range_step = 0.025
             self.max_obj_range = 0.2
+        else:
+            self.max_obj_range = self.obj_range
+            self.obj_range_step = 0
 
     # Returns true if maximum difficulty reached
     def increase_difficulty(self):
@@ -458,7 +444,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         while do:
             #print(self.initial_gripper_xpos[:2])
             object_xpos = (self.initial_gripper_xpos[:2] + 
-                self.np_random.uniform(-obj_range, obj_range, size=2))
+                self.np_random.uniform(-obj_range/2, obj_range/2, size=2))
             do = out_of_table(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(blue))
         assert object_qpos.shape == (7,)
@@ -494,64 +480,6 @@ class BlocksTouchChooseEnv(BlocksEnv):
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object{}:joint'.format(wrong), object_qpos)
-
-class BlocksTouchAttentionEnv(BlocksTouchEnv):
-    # The observation is given block by block
-    def _get_obs(self):
-        # positions
-        grip_pos = self.sim.data.get_site_xpos('robot0:grip')
-        dt = self.sim.nsubsteps * self.sim.model.opt.timestep
-        grip_velp = self.sim.data.get_site_xvelp('robot0:grip') * dt
-        robot_qpos, robot_qvel = utils.robot_get_obs(self.sim)
-
-        object_pos, object_rot, object_velp, object_velr, object_rel_pos = [], [], [], [], []
-
-        gripper_state = robot_qpos[-2:]
-        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
-
-        obs = []
-
-        for i in range(self.num_objs-2):
-            obj_name = 'object{}'.format(i)
-            temp_pos = self.sim.data.get_site_xpos(obj_name)
-            # rotations
-            temp_rot = rotations.mat2euler(self.sim.data.get_site_xmat(obj_name))
-            # velocities
-            temp_velp = self.sim.data.get_site_xvelp(obj_name) * dt
-            temp_velr = self.sim.data.get_site_xvelr(obj_name) * dt
-            # gripper state
-            temp_rel_pos = temp_pos - grip_pos
-            temp_velp -= grip_velp
-
-            block_obs = np.concatenate([temp_pos.ravel(), 
-                temp_rel_pos.ravel(), temp_rot.ravel(),
-                temp_velp.ravel(), temp_velr.ravel(),
-                ])
-
-            obs = np.concatenate([obs, block_obs])
-
-            # object_pos = np.concatenate([object_pos, temp_pos.ravel()])
-            # object_rot = np.concatenate([object_rot, temp_rot.ravel()])
-            # object_velp = np.concatenate([object_velp, temp_velp.ravel()])
-            # object_velr = np.concatenate([object_velr, temp_velr.ravel()])
-            # object_rel_pos = np.concatenate([object_rel_pos, temp_rel_pos.ravel()])
-
-        # achieved_goal = np.squeeze(object_pos.copy())
-        assert(self._check_goal())
-        achieved_goal = self.achieved_goal.copy().ravel()
-
-        obs = np.concatenate([grip_pos, gripper_state, grip_velp, gripper_vel, obs])
-        # Does order matter here? I think not ...
-        # obs = np.concatenate([
-        #     grip_pos, object_pos.ravel(), object_rel_pos.ravel(), gripper_state, object_rot.ravel(),
-        #     object_velp.ravel(), object_velr.ravel(), grip_velp, gripper_vel,
-        # ])
-
-        return {
-            'observation': obs.copy(),
-            'achieved_goal': achieved_goal.copy(),
-            'desired_goal': self.goal.copy(),
-        }
 
 class ToppleTowerEnv(BlocksEnv):
     """A very simple environment in which the gripper has to touch the block"""

@@ -69,6 +69,7 @@ def train(policy, rollout_worker, evaluator,
 
         if worker_success_rate >= SUCCESS_THRESHOLD:
             level = rollout_worker.increase_difficulty()
+            evaluator.increase_difficulty()
             if level != None:
                 logger.info("Difficulty increased to level {}!".format(level))
             # evaluator.increase_difficulty()

@@ -44,10 +44,3 @@ register(
     kwargs={'reward_type': 'sparse'},
     max_episode_steps=50,
 )
-
-register(
-    id='BlocksAttention-v0',
-    entry_point='gym_blocks.envs:BlocksTouchAttentionEnv',
-    kwargs={'reward_type': 'sparse'},
-    max_episode_steps=50,
-)
