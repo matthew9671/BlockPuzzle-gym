@@ -1,7 +1,7 @@
 import tensorflow as tf
 from baselines.her.util import store_args, nn
 
-BLOCK_FEATURES = 15
+BLOCK_FEATURES = 16
 ENV_FEATURES = 10
 FEATURE_SIZE = 128
 ATTENTION_CNT = 1

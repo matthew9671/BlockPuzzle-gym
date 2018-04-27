@@ -194,8 +194,9 @@ class BlocksEnv(robot_env.RobotEnv):
 
             block_obs = np.concatenate([temp_pos.ravel(), 
                 temp_rel_pos.ravel(), temp_rot.ravel(),
-                temp_velp.ravel(), temp_velr.ravel(),
+                temp_velp.ravel(), temp_velr.ravel(), [self.obj_colors[i+2]]
                 ])
+
 
             obs = np.concatenate([obs, block_obs])
 
