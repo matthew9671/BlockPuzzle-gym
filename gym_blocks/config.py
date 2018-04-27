@@ -20,12 +20,12 @@ DEFAULT_PARAMS = {
     # env
     'max_u': 1.,  # max absolute value of actions on different coordinates
     # ddpg
-    'layers': 3,  # number of layers in the critic/actor networks
+    'layers': 4,  # number of layers in the critic/actor networks
     'hidden': 256,  # number of neurons in each hidden layers
-    # 'network_class': 'baselines.her.actor_critic:ActorCritic',
+    #'network_class': 'baselines.her.actor_critic:ActorCritic',
     'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
-    'Q_lr': 0.001,  # critic learning rate
-    'pi_lr': 0.001,  # actor learning rate
+    'Q_lr': 0.002, # critic learning rate
+    'pi_lr': 0.002,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
