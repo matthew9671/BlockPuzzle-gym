@@ -194,7 +194,7 @@ class BlocksEnv(robot_env.RobotEnv):
 
             block_obs = np.concatenate([temp_pos.ravel(), 
                 temp_rel_pos.ravel(), temp_rot.ravel(),
-                temp_velp.ravel(), temp_velr.ravel(), [self.obj_colors[i+2]]
+                temp_velp.ravel(), temp_velr.ravel()#, [self.obj_colors[i+2]]
                 ])
 
 
@@ -465,7 +465,10 @@ class BlocksTouchChooseEnv(BlocksEnv):
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object{}:joint'.format(green), object_qpos)
-        # Set the position of the second block (grey/red)
+        # Set the position of the third block (grey/red)
+        # For the first difficulty level we are going to keep third block fixed in a corner
+        # if self.difficulty == 0:
+        #     return
         object1_pos = object_xpos
         center_pos = (object0_pos + object_xpos) / 2.0
         do = True

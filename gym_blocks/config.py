@@ -20,10 +20,10 @@ DEFAULT_PARAMS = {
     # env
     'max_u': 1.,  # max absolute value of actions on different coordinates
     # ddpg
-    'layers': 4,  # number of layers in the critic/actor networks
+    'layers': 3,  # number of layers in the critic/actor networks
     'hidden': 256,  # number of neurons in each hidden layers
     #'network_class': 'baselines.her.actor_critic:ActorCritic',
-    'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
+    'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
     'Q_lr': 0.002, # critic learning rate
     'pi_lr': 0.002,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
@@ -43,7 +43,7 @@ DEFAULT_PARAMS = {
     'random_eps': 0.3,  # percentage of time a random action is taken
     'noise_eps': 0.2,  # std of gaussian noise added to not-completely-random actions as a percentage of max_u
     # HER
-    'replay_strategy': 'future',  # supported modes: future, none
+    'replay_strategy': 'none',  # supported modes: future, none
     'replay_k': 4,  # number of additional goals used for replay, only used if off_policy_data=future
     # normalization
     'norm_eps': 0.01,  # epsilon used for observation normalization
