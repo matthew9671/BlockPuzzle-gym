@@ -3,8 +3,8 @@ from baselines.her.util import store_args, nn
 
 BLOCK_FEATURES = 15
 ENV_FEATURES = 10
-FEATURE_SIZE = 128
-ATTENTION_CNT = 1
+FEATURE_SIZE = 64
+ATTENTION_CNT = 2
 
 class AttentionActorCritic:
     @store_args
@@ -37,10 +37,10 @@ class AttentionActorCritic:
 
         obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
         obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
-        #print('######################', obs_blocks)	
+        #print('######################', obs_blocks)
 
         input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES])
-        #print('######################', input_blocks)  	
+        #print('######################', input_blocks)
         to_concat = []
         batch_size = tf.shape(obs_blocks)[0]
 
@@ -53,22 +53,23 @@ class AttentionActorCritic:
                     #print('###########', obs_blocks)
 
                 obs_blocks = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=None)
-                rnn_input = tf.unstack(tf.transpose(obs_blocks, perm=[1,0,2])) 
-                RNN_HIDDEN = 128
+                rnn_input = tf.unstack(tf.transpose(obs_blocks, perm=[1,0,2]))
+                RNN_HIDDEN = FEATURE_SIZE
                 lstm = tf.contrib.rnn.LSTMCell(RNN_HIDDEN, state_is_tuple=True)
 
                 #print('###########batch', batch_size, RNN_HIDDEN)
                 hid_state = tf.zeros([batch_size, RNN_HIDDEN])
                 cell_state = tf.zeros([batch_size, RNN_HIDDEN])
                 state = (hid_state, cell_state)
- 
-                #out = tf.scan(lambda a, x: lstm(x, a), rnn_input, initializer=hid_state) 
-                #print('######out', out)
 
-                blocks = [] 
+                #out = tf.scan(lambda a, x: lstm(x, a), rnn_input, initializer=hid_state)
+                #print('#####ghts)
+#out', out)
+
+                blocks = []
                 for block in rnn_input:
                     output, state = lstm(block, state)
-                    blocks.append(output) 
+                    blocks.append(output)
                     #print('#####', output)
                     #print('#####', state)
 
@@ -89,25 +90,43 @@ class AttentionActorCritic:
                 print(sum_blocks)
                 # (?, 1, n)
                 attention = tf.expand_dims(sum_blocks, 1)
-                
-                print('###########', attention)
+
+                #print('###########', attention)
 
                 # (?, ?, n)
                 attention = tf.tile(attention, [1, num_blocks, 1])
-                print('###########', attention)
+                #print('###########', attention)
 
 
                 attention = tf.nn.l2_normalize(attention, axis=2)
-                print('###########', attention)
+                #print('###########', attention)
 
                 # (?, ?)
                 norm_block_emb = tf.nn.l2_normalize(blocks, axis=2)
-                print('###########', attention)
-                print('###########', norm_block_emb)
+                #print('###########', attention)
+                #print('###########', norm_block_emb)
 
 
                 weights = tf.reduce_sum(attention * norm_block_emb, axis=2)
-                # weights = tf.nn.softmax(weights, axis=1)
+                weights = tf.nn.softmax(weights, axis=1)
+                print('###########', weights)
+                sindex = tf.argmax(weights, axis=1, output_type=tf.int32)
+                print('###########',sindex)
+
+                findex = tf.range(tf.shape(sindex)[0])
+                #index = tf.stack(tf.meshgrid(tf.range(0,batch_size), tf.range(0,batch_size)) + [ sindex ], axis=2)
+
+                print('###########', findex)
+
+                index = tf.stack([findex, sindex])
+                index = tf.transpose(index, perm=[1, 0])
+                #sind = tf.expand_dims(ind, axis=1)
+                print('###########', index)
+                chosen_block = tf.gather_nd(input_blocks, index)
+
+                print('###########', chosen_block)
+
+
                 self.block_weights = weights
                 # (?, ?, 1)
                 weights = tf.expand_dims(weights, 2)
@@ -117,7 +136,7 @@ class AttentionActorCritic:
                 # (?, n)
                 gated_obs = tf.reduce_sum(weighted, axis=1)
                 to_concat.append(gated_obs)
-
+                to_concat.append(chosen_block)
             gated_obs = tf.concat(axis=1, values=to_concat)
 
             input_pi = tf.concat(axis=1, values=[obs_env, gated_obs, g])  # for actor

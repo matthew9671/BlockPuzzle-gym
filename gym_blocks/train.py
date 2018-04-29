@@ -28,7 +28,17 @@ def mpi_average(value):
 
 def train(policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_policies, **kwargs):
+          save_policies, render, level, **kwargs):
+    if level > 0:
+        l = level
+        for i in range(l):
+        
+            level = rollout_worker.increase_difficulty()
+            evaluator.increase_difficulty()
+            if level != None:
+                logger.info("Difficulty increased to level {}!".format(level))
+
+
     rank = MPI.COMM_WORLD.Get_rank()
 
     latest_policy_path = os.path.join(logger.get_dir(), 'policy_latest.pkl')
@@ -96,7 +106,7 @@ def train(policy, rollout_worker, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True, render, policy_file=""
+    override_params={}, save_policies=True, render=False, policy_file="", level=0
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -188,13 +198,13 @@ def launch(
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
-        render=render)
+        render=render, level=level)
 
 
 @click.command()
 @click.option('--env_name', type=str, default='FetchReach-v0', help='the name of the OpenAI Gym environment that you want to train on')
 @click.option('--logdir', type=str, default=None, help='the path to where logs and policy pickles should go. If not specified, creates a folder in /tmp/')
-@click.option('--n_epochs', type=int, default=300, help='the number of training epochs to run')
+@click.option('--n_epochs', type=int, default=500, help='the number of training epochs to run')
 @click.option('--num_cpu', type=int, default=1, help='the number of CPU cores to use (using MPI)')
 @click.option('--seed', type=int, default=0, help='the random seed used to seed both the environment and the training code')
 @click.option('--policy_save_interval', type=int, default=5, help='the interval with which policy pickles are saved. If set to 0, only the best and latest policy will be pickled.')
@@ -202,6 +212,8 @@ def launch(
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
 @click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
 @click.option('--render/--no-render', default=False)
+@click.option('--level', type=int, default=0, help='starting difficulty')
+
 def main(**kwargs):
     launch(**kwargs)
 
