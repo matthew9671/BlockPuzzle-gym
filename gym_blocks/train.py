@@ -5,6 +5,7 @@ import click
 import numpy as np
 import json
 from mpi4py import MPI
+import pickle
 
 from baselines import logger
 from baselines.common import set_global_seeds
@@ -47,9 +48,10 @@ def train(policy, rollout_worker, evaluator,
             policy.update_target_net()
 
         # test
+        logger.info("Start testing!")
         evaluator.clear_history()
         for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts(render=False, test=True)
+            evaluator.generate_rollouts(render=render, test=True)
 
         # record logs
         logger.record_tabular('epoch', epoch)
@@ -94,7 +96,7 @@ def train(policy, rollout_worker, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True
+    override_params={}, save_policies=True, render, policy_file=""
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -144,7 +146,16 @@ def launch(
         logger.warn()
 
     dims = config.configure_dims(params)
-    policy = config.configure_ddpg(dims=dims, params=params, clip_return=clip_return)
+
+    if policy_file == "":
+        policy = config.configure_ddpg(dims=dims, params=params, clip_return=clip_return)
+    else:
+        # Load policy.
+        with open(policy_file, 'rb') as f:
+            policy = pickle.load(f)
+        fn = config.configure_her(params)
+        print(fn)
+        policy.set_sample_transitions(fn)
 
     rollout_params = {
         'exploit': False,
@@ -176,7 +187,8 @@ def launch(
         logdir=logdir, policy=policy, rollout_worker=rollout_worker,
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
-        policy_save_interval=policy_save_interval, save_policies=save_policies)
+        policy_save_interval=policy_save_interval, save_policies=save_policies,
+        render=render)
 
 
 @click.command()
@@ -188,6 +200,8 @@ def launch(
 @click.option('--policy_save_interval', type=int, default=5, help='the interval with which policy pickles are saved. If set to 0, only the best and latest policy will be pickled.')
 @click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='future', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
+@click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
+@click.option('--render/--no-render', default=False)
 def main(**kwargs):
     launch(**kwargs)
 

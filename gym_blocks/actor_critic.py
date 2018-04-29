@@ -134,3 +134,69 @@ class AttentionActorCritic:
             input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, g, self.u_tf / self.max_u])
             self._input_Q = input_Q  # exposed for tests
             self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
+
+class SimpleAttentionActorCritic:
+    @store_args
+    def __init__(self, inputs_tf, dimo, dimg, dimu, max_u, o_stats, g_stats, hidden, layers,
+                 **kwargs):
+        """The actor-critic network and related training code.
+
+        Args:
+            inputs_tf (dict of tensors): all necessary inputs for the network: the
+                observation (o), the goal (g), and the action (u)
+            dimo (int): the dimension of the observations
+            dimg (int): the dimension of the goals
+            dimu (int): the dimension of the actions
+            max_u (float): the maximum magnitude of actions; action outputs will be scaled
+                accordingly
+            o_stats (baselines.her.Normalizer): normalizer for observations
+            g_stats (baselines.her.Normalizer): normalizer for goals
+            hidden (int): number of hidden units that should be used in hidden layers
+            layers (int): number of hidden layers
+        """
+        self.o_tf = inputs_tf['o']
+        self.g_tf = inputs_tf['g']
+        self.u_tf = inputs_tf['u']
+
+        # Prepare inputs for actor and critic.
+        o = self.o_stats.normalize(self.o_tf)
+        g = self.g_stats.normalize(self.g_tf)
+
+        num_blocks = (o.get_shape().as_list()[1] - ENV_FEATURES) // BLOCK_FEATURES
+
+        obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
+        obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
+    
+        batch_size = tf.shape(obs_blocks)[0]
+
+        print(obs_blocks)
+
+        with tf.variable_scope('pi'):
+            # (?, b)
+            hidden = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=tf.nn.relu)
+            attention_weights = tf.layers.dense(hidden, num_blocks, activation=tf.sigmoid)
+            self.block_weights = attention_weights
+            # (?, b, f)
+            input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES]) 
+            # (?, b, 1)
+            weights = tf.expand_dims(attention_weights, 2)
+            # (?, b, f)
+            weights = tf.tile(weights, [1, 1, BLOCK_FEATURES])
+            weighted = weights * input_blocks
+            # (?, b * f)
+            gated_obs = tf.reshape(weighted, [-1, num_blocks * BLOCK_FEATURES])
+            print(gated_obs)
+            input_pi = tf.concat(axis=1, values=[obs_env, gated_obs])  # for actor
+
+        # Networks.
+        # with tf.variable_scope('pi'):
+            self.pi_tf = self.max_u * tf.tanh(nn(
+                input_pi, [self.hidden] * self.layers + [self.dimu]))
+        with tf.variable_scope('Q'):
+            # for policy training
+            input_Q = tf.concat(axis=1, values=[o, self.pi_tf / self.max_u])
+            self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
+            # for critic training
+            input_Q = tf.concat(axis=1, values=[o, self.u_tf / self.max_u])
+            self._input_Q = input_Q  # exposed for tests
+            self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
