@@ -5,7 +5,7 @@ import os
 import gym
 
 from baselines import logger
-from baselines.her.ddpg import DDPG
+from ddpg import DDPG
 from baselines.her.her import make_sample_her_transitions
 
 
@@ -20,10 +20,11 @@ DEFAULT_PARAMS = {
     # env
     'max_u': 1.,  # max absolute value of actions on different coordinates
     # ddpg
-    'layers': 4,  # number of layers in the critic/actor networks
-    'hidden': 128,  # number of neurons in each hidden layers
-    #'network_class': 'baselines.her.actor_critic:ActorCritic',
-    'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
+    'layers': 3,  # number of layers in the critic/actor networks
+    'hidden': 256,  # number of neurons in each hidden layers
+    # 'network_class': 'baselines.her.actor_critic:ActorCritic',
+    # 'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
+    'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
     'Q_lr': 0.002, # critic learning rate
     'pi_lr': 0.002,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
@@ -169,4 +170,5 @@ def configure_dims(params):
         if value.ndim == 0:
             value = value.reshape(1)
         dims['info_{}'.format(key)] = value.shape[0]
+    DDPG.DIMO = dims['o']
     return dims

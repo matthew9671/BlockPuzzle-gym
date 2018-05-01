@@ -6,6 +6,7 @@ from baselines import logger
 from baselines.common import set_global_seeds
 import config
 from rollout import RolloutStudent
+from ddpg import DDPG
 
 import gym_blocks
 
@@ -14,9 +15,12 @@ import gym_blocks
 @click.option('--seed', type=int, default=0)
 @click.option('--n_test_rollouts', type=int, default=10)
 @click.option('--render', type=int, default=1)
-def main(policy_file, seed, n_test_rollouts, render):
+@click.option('--level', type=int, default=0)
+@click.option('--dimo', type=int, default=40)
+def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     set_global_seeds(seed)
 
+    DDPG.DIMO = dimo
     # Load policy.
     with open(policy_file, 'rb') as f:
         policy = pickle.load(f)
@@ -48,8 +52,12 @@ def main(policy_file, seed, n_test_rollouts, render):
 
     # Run evaluation.
     evaluator.clear_history()
+    # Set the evaluator to the corresponding difficulty level
+    for _ in range(level):
+        evaluator.increase_difficulty()
+
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=True, compute_Attention=False)
+        evaluator.generate_rollouts(render=True, test=False, compute_Attention=False)
 
     # record logs
     for key, val in evaluator.logs('test'):

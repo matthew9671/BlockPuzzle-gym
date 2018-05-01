@@ -17,6 +17,9 @@ def dims_to_shapes(input_dims):
 
 
 class DDPG(object):
+
+    DIMO = 0
+
     @store_args
     def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
@@ -61,6 +64,9 @@ class DDPG(object):
         self.dimg = self.input_dims['g']
         self.dimu = self.input_dims['u']
 
+        # I added this
+        input_shapes['o'] = (None,)
+
         # Prepare staging area for feeding data to the model.
         stage_shapes = OrderedDict()
         for key in sorted(self.input_dims.keys()):
@@ -84,7 +90,7 @@ class DDPG(object):
             self._create_network(reuse=reuse)
 
         # Configure the replay buffer.
-        buffer_shapes = {key: (self.T if key != 'o' else self.T+1, *input_shapes[key])
+        buffer_shapes = {key: (self.T, *input_shapes[key]) if key != 'o' else (self.T+1, DDPG.DIMO)
                          for key, val in input_shapes.items()}
         buffer_shapes['g'] = (buffer_shapes['g'][0], self.dimg)
         buffer_shapes['ag'] = (self.T+1, self.dimg)
@@ -238,7 +244,7 @@ class DDPG(object):
         with tf.variable_scope('o_stats') as vs:
             if reuse:
                 vs.reuse_variables()
-            self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
+            self.o_stats = Normalizer(DDPG.DIMO, self.norm_eps, self.norm_clip, sess=self.sess)
         with tf.variable_scope('g_stats') as vs:
             if reuse:
                 vs.reuse_variables()
@@ -246,6 +252,7 @@ class DDPG(object):
 
         # mini-batch sampling.
         batch = self.staging_tf.get()
+        print("########", batch)
         batch_tf = OrderedDict([(key, batch[i])
                                 for i, key in enumerate(self.stage_shapes.keys())])
         batch_tf['r'] = tf.reshape(batch_tf['r'], [-1, 1])
@@ -325,7 +332,21 @@ class DDPG(object):
         state['tf'] = self.sess.run([x for x in self._global_vars('') if 'buffer' not in x.name])
         return state
 
+    def set_sample_transitions(self, fn):
+        print("set_sample_transitions is called!")
+        self.sample_transitions = fn
+        self.buffer.sample_transitions = fn
+
+    def set_obs_size(self, dims):
+        self.input_dims = dims
+        self.dimo = dims['o']
+        self.dimg = dims['g']
+        self.dimu = dims['u']
+        # print("Hey!!!!!!", self.dimo)
+        # self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
+
     def __setstate__(self, state):
+        print("__setstate__ is called!")
         if 'sample_transitions' not in state:
             # We don't need this for playing the policy.
             state['sample_transitions'] = None
@@ -338,5 +359,6 @@ class DDPG(object):
         # load TF variables
         vars = [x for x in self._global_vars('') if 'buffer' not in x.name]
         assert(len(vars) == len(state["tf"]))
-        node = [tf.assign(var, val) for var, val in zip(vars, state["tf"])]
+        node = [tf.no_op() if 'o_stats' in var.name else tf.assign(var, val) 
+                for var, val in zip(vars, state["tf"])]
         self.sess.run(node)

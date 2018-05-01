@@ -28,7 +28,7 @@ def mpi_average(value):
 
 def train(policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_policies, render, level, **kwargs):
+          save_policies, render, level, max_test, **kwargs):
     if level > 0:
         l = level
         for i in range(l):
@@ -61,7 +61,7 @@ def train(policy, rollout_worker, evaluator,
         logger.info("Start testing!")
         evaluator.clear_history()
         for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts(render=render, test=True)
+            evaluator.generate_rollouts(render=render, test=max_test)
 
         # record logs
         logger.record_tabular('epoch', epoch)
@@ -106,7 +106,7 @@ def train(policy, rollout_worker, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True, render=False, policy_file="", level=0
+    override_params={}, save_policies=True, render=False, max_test=True, policy_file="", level=0
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -164,8 +164,10 @@ def launch(
         with open(policy_file, 'rb') as f:
             policy = pickle.load(f)
         fn = config.configure_her(params)
-        print(fn)
+        # print(fn)
         policy.set_sample_transitions(fn)
+        # print(dir(policy))
+        policy.set_obs_size(dims)
 
     rollout_params = {
         'exploit': False,
@@ -198,7 +200,7 @@ def launch(
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
-        render=render, level=level)
+        render=render, level=level, max_test=max_test)
 
 
 @click.command()
@@ -212,6 +214,7 @@ def launch(
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
 @click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
 @click.option('--render/--no-render', default=False)
+@click.option('--max_test/--no_max_test', default=True)
 @click.option('--level', type=int, default=0, help='starting difficulty')
 
 def main(**kwargs):

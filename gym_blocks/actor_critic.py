@@ -3,8 +3,8 @@ from baselines.her.util import store_args, nn
 
 BLOCK_FEATURES = 15
 ENV_FEATURES = 10
-FEATURE_SIZE = 64
-ATTENTION_CNT = 2
+FEATURE_SIZE = 128
+ATTENTION_CNT = 1
 
 class AttentionActorCritic:
     @store_args
@@ -33,7 +33,12 @@ class AttentionActorCritic:
         o = self.o_stats.normalize(self.o_tf)
         g = self.g_stats.normalize(self.g_tf)
 
-        num_blocks = (o.get_shape().as_list()[1] - ENV_FEATURES) // BLOCK_FEATURES
+        env_size = tf.constant(ENV_FEATURES, tf.int32)
+        block_size = tf.constant(BLOCK_FEATURES, tf.int32)
+        batch_size = tf.shape(o)[0]
+        obs_shape = tf.shape(o)[1]
+
+        num_blocks = tf.cast((obs_shape - env_size) / block_size, tf.int32)
 
         obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
         obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
@@ -42,7 +47,6 @@ class AttentionActorCritic:
         input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES])
         #print('######################', input_blocks)
         to_concat = []
-        batch_size = tf.shape(obs_blocks)[0]
 
         with tf.variable_scope('Q'):
             for _ in range(ATTENTION_CNT):
@@ -53,28 +57,31 @@ class AttentionActorCritic:
                     #print('###########', obs_blocks)
 
                 obs_blocks = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=None)
-                rnn_input = tf.unstack(tf.transpose(obs_blocks, perm=[1,0,2]))
+                # rnn_input = tf.transpose(obs_blocks, perm=[1,0,2])
                 RNN_HIDDEN = FEATURE_SIZE
                 lstm = tf.contrib.rnn.LSTMCell(RNN_HIDDEN, state_is_tuple=True)
+                # For loop doesn't work! Use tf.nn.dynamic_rnn instead!
+                # https://stackoverflow.com/questions/43341374/tensorflow-dynamic-rnn-lstm-how-to-format-input
+                blocks, _ = tf.nn.dynamic_rnn(lstm, obs_blocks, dtype=tf.float32)
 
                 #print('###########batch', batch_size, RNN_HIDDEN)
-                hid_state = tf.zeros([batch_size, RNN_HIDDEN])
-                cell_state = tf.zeros([batch_size, RNN_HIDDEN])
-                state = (hid_state, cell_state)
+                # hid_state = tf.zeros([batch_size, RNN_HIDDEN])
+                # cell_state = tf.zeros([batch_size, RNN_HIDDEN])
+                # state = (hid_state, cell_state)
 
                 #out = tf.scan(lambda a, x: lstm(x, a), rnn_input, initializer=hid_state)
                 #print('#####ghts)
-#out', out)
+                #out', out)
 
-                blocks = []
-                for block in rnn_input:
-                    output, state = lstm(block, state)
-                    blocks.append(output)
-                    #print('#####', output)
-                    #print('#####', state)
+                # blocks = []
+                # for block in rnn_input:
+                #     output, state = lstm(block, state)
+                #     blocks.append(output)
+                #     #print('#####', output)
+                #     #print('#####', state)
 
-                blocks = tf.stack(blocks)
-                blocks = tf.transpose(blocks, perm=[1, 0, 2])
+                # blocks = tf.stack(blocks)
+                # blocks = tf.transpose(blocks, perm=[1, 0, 2])
 
                 # Add all the blocks together
                 # (?, n)
@@ -192,8 +199,9 @@ class SimpleAttentionActorCritic:
 
         with tf.variable_scope('pi'):
             # (?, b)
-            hidden = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=tf.nn.relu)
-            attention_weights = tf.layers.dense(hidden, num_blocks, activation=tf.sigmoid)
+            # hidden = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=tf.nn.relu)
+            # attention_weights = tf.layers.dense(hidden, num_blocks, activation=tf.sigmoid)
+            attention_weights = tf.layers.dense(obs_blocks, num_blocks, activation=tf.tanh)
             self.block_weights = attention_weights
             # (?, b, f)
             input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES]) 
