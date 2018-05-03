@@ -26,18 +26,19 @@ def mpi_average(value):
     return mpi_moments(np.array(value))[0]
 
 
-def train(policy, rollout_worker, evaluator,
+def train(policy, rollout_worker, examiner, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
           save_policies, render, level, curriculum, max_test, **kwargs):
+
     if curriculum and level > 0:
         l = level
         for i in range(l):
         
             level = rollout_worker.increase_difficulty()
             evaluator.increase_difficulty()
+            examiner.increase_difficulty()
             if level != None:
                 logger.info("Difficulty increased to level {}!".format(level))
-
 
     rank = MPI.COMM_WORLD.Get_rank()
 
@@ -60,13 +61,20 @@ def train(policy, rollout_worker, evaluator,
         logger.info("Start testing!")
         evaluator.clear_history()
         for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts(render=render, test=False, exploit=False)
+            evaluator.generate_rollouts(render=render, test=False, exploit=True)
+
+        # final exam
+        examiner.clear_history()
+        for _ in range(n_test_rollouts):
+            examiner.generate_rollouts(render=False, test=True, exploit=True)
 
         # record logs
         logger.record_tabular('epoch', epoch)
+        for key, val in rollout_worker.logs('train'):
+            logger.record_tabular(key, mpi_average(val))
         for key, val in evaluator.logs('test'):
             logger.record_tabular(key, mpi_average(val))
-        for key, val in rollout_worker.logs('train'):
+        for key, val in examiner.logs('finals'):
             logger.record_tabular(key, mpi_average(val))
         for key, val in policy.logs():
             logger.record_tabular(key, mpi_average(val))
@@ -74,14 +82,17 @@ def train(policy, rollout_worker, evaluator,
         if rank == 0:
             logger.dump_tabular()
 
+        rollout_worker.anneal()
+
         # save the policy if it's better than the previous ones
-        success_rate = mpi_average(evaluator.current_success_rate())
-        worker_success_rate = mpi_average(rollout_worker.current_success_rate())
+        success_rate = mpi_average(examiner.current_success_rate())
+        test_success_rate = mpi_average(evaluator.current_success_rate())
 
         # Increase difficulty in curriculum learning
-        if curriculum and worker_success_rate >= SUCCESS_THRESHOLD:
+        if curriculum and test_success_rate >= SUCCESS_THRESHOLD:
             level = rollout_worker.increase_difficulty()
             evaluator.increase_difficulty()
+            examiner.increase_difficulty()
             if level != None:
                 logger.info("Difficulty increased to level {}!".format(level))
             # evaluator.increase_difficulty()
@@ -106,7 +117,7 @@ def train(policy, rollout_worker, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True, render=False, max_test=True, policy_file="", level=0, curriculum=True
+    override_params={}, save_policies=True, render=False, max_test=True, expert_file="", level=0, curriculum=True
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -157,17 +168,23 @@ def launch(
 
     dims = config.configure_dims(params)
 
-    if policy_file == "":
-        policy = config.configure_pggd(dims=dims, params=params, clip_return=clip_return)
+    # if policy_file == "":
+    policy = config.configure_pggd(dims=dims, params=params, clip_return=clip_return)
+    # else:
+    #     # Load policy.
+    #     with open(policy_file, 'rb') as f:
+    #         policy = pickle.load(f)
+    #     fn = config.configure_her(params)
+    #     # print(fn)
+    #     policy.set_sample_transitions(fn)
+    #     # print(dir(policy))
+    #     policy.set_obs_size(dims)
+
+    if expert_file != "":
+        with open(expert_file, 'rb') as f:
+                expert = pickle.load(f)
     else:
-        # Load policy.
-        with open(policy_file, 'rb') as f:
-            policy = pickle.load(f)
-        fn = config.configure_her(params)
-        # print(fn)
-        policy.set_sample_transitions(fn)
-        # print(dir(policy))
-        policy.set_obs_size(dims)
+        expert = None
 
     rollout_params = {
         'exploit': False,
@@ -175,6 +192,8 @@ def launch(
         'use_demo_states': True,
         'compute_Q': False,
         'T': params['T'],
+        'beta_final': params['beta_final'],
+        'annealing_coeff': params['annealing_coeff']
     }
 
     eval_params = {
@@ -189,14 +208,17 @@ def launch(
         rollout_params[name] = params[name]
         eval_params[name] = params[name]
 
-    rollout_worker = RolloutStudent(params['make_env'], policy, dims, logger, **rollout_params)
+    rollout_worker = RolloutStudent(params['make_env'], policy, expert, dims, logger, **rollout_params)
     rollout_worker.seed(rank_seed)
 
-    evaluator = RolloutStudent(params['make_env'], policy, dims, logger, **eval_params)
+    examiner = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
+    examiner.seed(rank_seed)
+
+    evaluator = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
     evaluator.seed(rank_seed)
 
     train(
-        logdir=logdir, policy=policy, rollout_worker=rollout_worker,
+        logdir=logdir, policy=policy, rollout_worker=rollout_worker, examiner=examiner,
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
@@ -212,7 +234,7 @@ def launch(
 @click.option('--policy_save_interval', type=int, default=5, help='the interval with which policy pickles are saved. If set to 0, only the best and latest policy will be pickled.')
 @click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='future', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
-@click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
+@click.option('--expert_file', type=str, default='', help='the path of the pre-learned expert policy')
 @click.option('--render/--no-render', default=False)
 @click.option('--max_test/--no_max_test', default=True)
 @click.option('--level', type=int, default=0, help='starting difficulty')

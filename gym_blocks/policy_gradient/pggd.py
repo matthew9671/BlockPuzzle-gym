@@ -102,6 +102,7 @@ class PGGD(object):
         buffer_shapes['ag'] = (self.T+1, self.dimg)
         # -------------------
         buffer_shapes['G'] = (self.T,)
+        buffer_shapes['sigma'] = (self.T, self.dimu)
         # -------------------
         buffer_size = (self.buffer_size // self.rollout_batch_size) * self.rollout_batch_size
         self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, self.sample_transitions)
@@ -130,7 +131,7 @@ class PGGD(object):
         else:
             vals = [policy.a_tf]
 
-        vals += [policy.raw_tf]
+        vals += [policy.raw_tf, policy.sigma_tf]
         # feed
         feed = {
             policy.o_tf: o.reshape(-1, self.dimo),
@@ -140,13 +141,15 @@ class PGGD(object):
 
         ret = self.sess.run(vals, feed_dict=feed)
         # action postprocessing
-        u, raw = ret
+        u, raw, sigma = ret
         if u.shape[0] == 1:
             u = u[0]
             raw = raw[0]
+            sigma = sigma[0]
         u = u.copy()
         raw = raw.copy()
-        return u, raw
+        sigma = sigma.copy()
+        return u, raw, sigma
     # -------------------------------
 
     def store_episode(self, episode_batch, update_stats=True):
@@ -170,11 +173,13 @@ class PGGD(object):
 
             self.o_stats.update(transitions['o'])
             self.G_stats.update(transitions['G'])
+            self.sigma_stats.update(transitions['sigma'])
             self.g_stats.update(transitions['g'])
 
             self.o_stats.recompute_stats()
             self.g_stats.recompute_stats()
             self.G_stats.recompute_stats()
+            self.sigma_stats.recompute_stats()
 
     def get_current_buffer_size(self):
         return self.buffer.get_current_size()
@@ -250,10 +255,16 @@ class PGGD(object):
             if reuse:
                 vs.reuse_variables()
             self.o_stats = Normalizer(PGGD.DIMO, self.norm_eps, self.norm_clip, sess=self.sess)
+        # --------------
         with tf.variable_scope('G_stats') as vs:
             if reuse:
                 vs.reuse_variables()
             self.G_stats = Normalizer(1, self.norm_eps, self.norm_clip, sess=self.sess)
+        with tf.variable_scope('sigma_stats') as vs:
+            if reuse:
+                vs.reuse_variables()
+            self.sigma_stats = Normalizer(self.dimu, self.norm_eps, self.norm_clip, sess=self.sess)
+        # --------------
         with tf.variable_scope('g_stats') as vs:
             if reuse:
                 vs.reuse_variables()
@@ -307,7 +318,7 @@ class PGGD(object):
         # polyak averaging
         # self.main_vars = self._vars('main/Q') + self._vars('main/pi')
         # self.target_vars = self._vars('target/Q') + self._vars('target/pi')
-        self.stats_vars = self._global_vars('o_stats') + self._global_vars('g_stats') + self._global_vars('G_stats')
+        self.stats_vars = self._global_vars('o_stats') + self._global_vars('g_stats') + self._global_vars('G_stats') + self._global_vars('sigma_stats')
         # self.init_target_net_op = list(
         #     map(lambda v: v[0].assign(v[1]), zip(self.target_vars, self.main_vars)))
         # self.update_target_net_op = list(
@@ -326,6 +337,7 @@ class PGGD(object):
         logs += [('stats_g/std', np.mean(self.sess.run([self.g_stats.std])))]
         logs += [('stats_G/mean', np.mean(self.sess.run([self.G_stats.mean])))]
         logs += [('stats_G/std', np.mean(self.sess.run([self.G_stats.std])))]
+        logs += [('stats_stddev/mean', np.mean(self.sess.run([self.sigma_stats.mean])))]
 
         if prefix is not '' and not prefix.endswith('/'):
             return [(prefix + '/' + key, val) for key, val in logs]

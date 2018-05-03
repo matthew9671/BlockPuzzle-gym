@@ -41,4 +41,4 @@ class GaussianPolicy:
             # Deterministic action
             self.da_tf = self.max_u * tf.tanh(self.mu_tf)
             self.a_prob_tf = self.pi_tf.prob(self.u_tf)
-            print(self.a_prob_tf)
+            # print(self.a_prob_tf)

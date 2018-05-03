@@ -9,9 +9,10 @@ from baselines.her.util import convert_episode_to_batch_major, store_args
 class RolloutStudent:
 
     @store_args
-    def __init__(self, make_env, policy, dims, logger, T, rollout_batch_size=1,
+    def __init__(self, make_env, policy, expert, dims, logger, T, rollout_batch_size=1,
                  exploit=False, use_target_net=False, compute_Q=False, noise_eps=0,
-                 random_eps=0, history_len=100, render=False, gamma=None, **kwargs):
+                 random_eps=0, history_len=100, render=False, gamma=None, 
+                 beta_final=None, annealing_coeff=None, **kwargs):
         """Rollout worker generates experience by interacting with one or many environments.
 
         Args:
@@ -47,6 +48,11 @@ class RolloutStudent:
 
         # ------------
         self.gamma = gamma
+        self.time = 0.0
+        self.beta_final = beta_final
+        self.annealing_coeff = annealing_coeff
+        self.expert = expert
+        # ------------
 
     def reset_rollout(self, i, test=False):
         """Resets the `i`-th rollout environment, re-samples a new goal, and updates the `initial_o`
@@ -81,6 +87,12 @@ class RolloutStudent:
         """
         self.reset_all_rollouts(test)
 
+        # Annealing
+        if self.expert != None:
+            beta = self.beta()
+        else:
+            beta = 0
+
         # compute observations
         o = np.empty((self.rollout_batch_size, self.dims['o']), np.float32)  # observations
         ag = np.empty((self.rollout_batch_size, self.dims['g']), np.float32)  # achieved goals
@@ -88,13 +100,20 @@ class RolloutStudent:
         ag[:] = self.initial_ag
 
         # generate episodes
-        obs, achieved_goals, acts, goals, successes, returns = [], [], [], [], [], []
+        obs, achieved_goals, acts, goals, successes, returns, sigmas = [], [], [], [], [], [], []
         info_values = [np.empty((self.T, self.rollout_batch_size, self.dims['info_' + key]), np.float32) for key in self.info_keys]
         for t in range(self.T):
-            policy_output = self.policy.get_actions(
-                o, ag, self.g, exploit=exploit)
+            if np.random.rand() < beta:
+                policy_output = self.expert.get_actions(o, ag, self.g, compute_raw=True)
+                u, raw = policy_output
+            else:
+                policy_output = self.policy.get_actions(
+                    o, ag, self.g, exploit=exploit)
 
-            u, raw = policy_output
+                u, raw, sigma = policy_output
+            # We can't report sigma accurately when we are using the expert
+            if self.expert != None:
+                sigma = np.zeros((self.rollout_batch_size, self.dims['u']))
 
             if u.ndim == 1:
                 # The non-batched case should still have a reasonable shape.
@@ -141,6 +160,7 @@ class RolloutStudent:
             successes.append(success.copy())
             acts.append(raw.copy())
             goals.append(self.g.copy())
+            sigmas.append(sigma.copy())
             # ---------
             returns.append(r_new.copy())
             for t_ in range(t):
@@ -158,7 +178,8 @@ class RolloutStudent:
                        g=goals,
                        ag=achieved_goals,
                        # --------
-                       G=returns)
+                       G=returns,
+                       sigma=sigmas)
                        # --------
         for key, value in zip(self.info_keys, info_values):
             episode['info_{}'.format(key)] = value
@@ -172,6 +193,14 @@ class RolloutStudent:
         self.n_episodes += self.rollout_batch_size
 
         return convert_episode_to_batch_major(episode)
+
+    def beta(self):
+        return (1.0 - self.beta_final) * np.exp(-self.time / self.annealing_coeff) + self.beta_final
+
+    def anneal(self):
+        self.time += 1.0
+        if self.expert != None:
+            self.logger.info("Beta = {}".format(self.beta()))
 
     def clear_history(self):
         """Clears all histories that are used for statistics

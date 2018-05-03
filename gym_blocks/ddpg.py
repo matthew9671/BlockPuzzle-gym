@@ -113,11 +113,13 @@ class DDPG(object):
         return o, g
 
     def get_actions(self, o, ag, g, noise_eps=0., random_eps=0., use_target_net=False,
-                    compute_Q=False, compute_Attention=False):
+                    compute_Q=False, compute_raw=False, compute_Attention=False):
         o, g = self._preprocess_og(o, ag, g)
         policy = self.target if use_target_net else self.main
         # values to compute
-        vals = [policy.pi_tf]
+        vals = [policy.pi_tf] 
+        if compute_raw:
+            vals += [policy.raw_tf]
         if compute_Q:
             vals += [policy.Q_pi_tf]
         if compute_Attention:

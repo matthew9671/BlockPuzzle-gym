@@ -48,7 +48,8 @@ DEFAULT_PARAMS = {
     'norm_eps': 0.01,  # epsilon used for observation normalization
     'norm_clip': 5,  # normalized observations are cropped to this values
     # -----------------
-    'annealing_coeff': 0
+    'annealing_coeff': 4.0,
+    'beta_final': 0.5      # percentage of time that the expert policy is used
     # -----------------
 }
 
