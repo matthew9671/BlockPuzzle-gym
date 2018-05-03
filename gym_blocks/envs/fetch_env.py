@@ -122,7 +122,7 @@ class BlocksEnv(robot_env.RobotEnv):
         # Compute distance between goal and the achieved goal.
         d = np.sum(achieved_goal * goal, axis=-1)
         c = np.count_nonzero(goal, axis=-1)
-        return -(d != c).astype(np.float32)
+        return (1.0-(d != c).astype(np.float32))
 
     # RobotEnv methods
     # ----------------------------
@@ -207,11 +207,11 @@ class BlocksEnv(robot_env.RobotEnv):
 
         return {
             'observation': obs.copy(),
-            # 'achieved_goal': achieved_goal.copy(),
-            # 'desired_goal': self.goal.copy(),
+            'achieved_goal': achieved_goal.copy(),
+            'desired_goal': self.goal.copy(),
             # We are getting rid of the goals here
-            'achieved_goal': np.asarray([0]),
-            'desired_goal': np.asarray([0]),
+            # 'achieved_goal': np.asarray([0]),
+            # 'desired_goal': np.asarray([0]),
         }
 
     def _viewer_setup(self):
@@ -263,7 +263,7 @@ class BlocksEnv(robot_env.RobotEnv):
         # Override whatever input it gives
         achieved_goal, desired_goal = self.achieved_goal.ravel(), self.goal
         r = self.compute_reward(achieved_goal, desired_goal, None)
-        if r == 0:
+        if r == 1:
             self.has_succeeded = True
         return self.has_succeeded
 

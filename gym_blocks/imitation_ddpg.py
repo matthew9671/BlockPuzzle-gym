@@ -15,13 +15,15 @@ from baselines.common.mpi_adam import MpiAdam
 def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
 
-
 class DDPG(object):
 
-    DIMO = 0
+    DIMO = 40
 
     @store_args
-    def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
+    def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size, 
+                # ------------------
+                 imitator_batch_size,
+                # ------------------
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
                  rollout_batch_size, subtract_goals, relative_goals, clip_pos_returns, clip_return,
                  sample_transitions, gamma, reuse=False, **kwargs):
@@ -64,8 +66,9 @@ class DDPG(object):
         self.dimg = self.input_dims['g']
         self.dimu = self.input_dims['u']
 
-        # I added this
+        # ---------------
         input_shapes['o'] = (None,)
+        # ---------------
 
         # Prepare staging area for feeding data to the model.
         stage_shapes = OrderedDict()
@@ -76,6 +79,10 @@ class DDPG(object):
         for key in ['o', 'g']:
             stage_shapes[key + '_2'] = stage_shapes[key]
         stage_shapes['r'] = (None,)
+        # ----------
+        stage_shapes['Q_expert'] = (None,)
+        stage_shapes['u_expert'] = (None, self.dimu)
+        # ----------
         self.stage_shapes = stage_shapes
 
         # Create network.
@@ -97,6 +104,10 @@ class DDPG(object):
 
         buffer_size = (self.buffer_size // self.rollout_batch_size) * self.rollout_batch_size
         self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, self.sample_transitions)
+        # ----------------
+        self.imitator_batch_size = imitator_batch_size
+        self.imitation_data = []
+        # ----------------
 
     def _random_action(self, n):
         return np.random.uniform(low=-self.max_u, high=self.max_u, size=(n, self.dimu))
@@ -215,6 +226,44 @@ class DDPG(object):
         self._update(Q_grad, pi_grad)
         return critic_loss, actor_loss
 
+    # -----------------------------
+    def _imi_grads(self):
+        # Avoid feed_dict here for performance!
+        imi_Q_loss, imi_pi_loss, imi_Q_grad, imi_pi_grad = self.sess.run([
+            self.imi_Q_loss_tf,
+            self.imi_pi_loss_tf,
+            self.imi_Q_grad_tf,
+            self.imi_pi_grad_tf
+        ])
+        return imi_Q_loss, imi_pi_loss, imi_Q_grad, imi_pi_grad
+
+    def _imi_update(self, imi_Q_grad, imi_pi_grad):
+        self.Q_adam.update(imi_Q_grad, self.Q_lr)
+        self.pi_adam.update(imi_pi_grad, self.pi_lr)
+
+    def imi_stage_batch(self, batch=None):
+        self.sess.run(self.stage_op, feed_dict=dict(zip(self.buffer_ph_tf, batch)))
+
+    def imi_train(self):
+        n = len(self.imitation_data)
+        batch_size = self.imitator_batch_size
+        for i in range(0, n, batch_size):
+            lo = i
+            hi = min(i + batch_size, n)
+            self.imi_stage_batch(self.imitation_data[lo:hi])
+            imi_Q_loss, imi_pi_loss, imi_Q_grad, imi_pi_grad = self._imi_grads()
+            self._imi_update(imi_Q_grad, imi_pi_grad)
+        self.clear_imitation_episode()
+        return imi_Q_loss, imi_pi_loss
+
+    def store_imitation_episode(self, episode):
+        self.imitation_data += episode
+
+    def clear_imitation_episode(self):
+        self.imitation_data = []
+
+    # -----------------------------
+
     def _init_target_net(self):
         self.sess.run(self.init_target_net_op)
 
@@ -256,6 +305,9 @@ class DDPG(object):
         batch_tf = OrderedDict([(key, batch[i])
                                 for i, key in enumerate(self.stage_shapes.keys())])
         batch_tf['r'] = tf.reshape(batch_tf['r'], [-1, 1])
+        # -------------
+        batch_tf['Q_expert'] = tf.reshape(batch_tf['Q_expert'], [-1, 1])
+        # -------------
 
         # networks
         with tf.variable_scope('main') as vs:
@@ -281,6 +333,20 @@ class DDPG(object):
         self.Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - self.main.Q_tf))
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
+        # -----------------------------------
+        self.imi_pi_loss_tf = tf.reduce_mean(
+            tf.square((batch_tf['u_expert'] - self.main.pi_tf) / self.max_u))
+        self.imi_Q_loss_tf = tf.reduce_mean(
+            tf.square(batch_tf['Q_expert'] - self.main.Q_tf))
+        imi_pi_grads_tf = tf.gradients(self.imi_pi_loss_tf, self._vars('main/pi'))
+        imi_Q_grads_tf = tf.gradients(self.imi_Q_loss_tf, self._vars('main/Q'))
+        assert len(self._vars('main/Q')) == len(imi_Q_grads_tf)
+        assert len(self._vars('main/pi')) == len(imi_pi_grads_tf)
+        self.imi_Q_grads_vars_tf = zip(imi_Q_grads_tf, self._vars('main/Q'))
+        self.imi_pi_grads_vars_tf = zip(imi_pi_grads_tf, self._vars('main/pi'))
+        self.imi_Q_grad_tf = flatten_grads(grads=imi_Q_grads_tf, var_list=self._vars('main/Q'))
+        self.imi_pi_grad_tf = flatten_grads(grads=imi_pi_grads_tf, var_list=self._vars('main/pi'))
+        # -----------------------------------
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         assert len(self._vars('main/Q')) == len(Q_grads_tf)
@@ -332,6 +398,8 @@ class DDPG(object):
         state['tf'] = self.sess.run([x for x in self._global_vars('') if 'buffer' not in x.name])
         return state
 
+    # -----------------------------------
+    # For reading an existing policy file for further training
     def set_sample_transitions(self, fn):
         print("set_sample_transitions is called!")
         self.sample_transitions = fn
@@ -344,6 +412,7 @@ class DDPG(object):
         self.dimu = dims['u']
         # print("Hey!!!!!!", self.dimo)
         # self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
+    # -----------------------------------
 
     def __setstate__(self, state):
         print("__setstate__ is called!")

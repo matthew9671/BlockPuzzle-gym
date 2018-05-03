@@ -218,12 +218,12 @@ class SimpleAttentionActorCritic:
         # Networks.
         # with tf.variable_scope('pi'):
             self.pi_tf = self.max_u * tf.tanh(nn(
-                input_pi, [self.hidden] * self.layers + [self.dimu]))
+                input_pi, [self.hidden] * self.layers + [t.dimu]))
         with tf.variable_scope('Q'):
             # for policy training
-            input_Q = tf.concat(axis=1, values=[o, self.pi_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[o, g, self.pi_tf / self.max_u])
             self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
             # for critic training
-            input_Q = tf.concat(axis=1, values=[o, self.u_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[o, g, self.u_tf / self.max_u])
             self._input_Q = input_Q  # exposed for tests
             self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
