@@ -48,6 +48,12 @@ def train(policy, rollout_worker, examiner, evaluator,
 
     logger.info("Training...")
     best_success_rate = -1
+
+    # # Warming up the replay memory
+    # for _ in range(20):
+    #     episode = rollout_worker.generate_rollouts()
+    #     policy.store_episode(episode)
+
     for epoch in range(n_epochs):
         # train
         rollout_worker.clear_history()

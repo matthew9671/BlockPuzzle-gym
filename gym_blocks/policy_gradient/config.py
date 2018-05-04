@@ -24,7 +24,7 @@ DEFAULT_PARAMS = {
     'hidden': 256,  # number of neurons in each hidden layers
     'network_class': 'gym_blocks.policy_gradient.policy_network:GaussianPolicy',
     'Q_lr': 0.002, # critic learning rate
-    'pi_lr': 0.002,  # actor learning rate
+    'pi_lr': 0.0001,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
@@ -36,7 +36,7 @@ DEFAULT_PARAMS = {
     'rollout_batch_size': 2,  # per mpi thread
     'n_batches': 40,  # training batches per cycle
     'batch_size': 256,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.
-    'n_test_rollouts': 10,  # number of test rollouts per epoch, each consists of rollout_batch_size rollouts
+    'n_test_rollouts': 20,  # number of test rollouts per epoch, each consists of rollout_batch_size rollouts
     'test_with_polyak': False,  # run test episodes with the target network
     # exploration
     'random_eps': 0.3,  # percentage of time a random action is taken
@@ -48,8 +48,8 @@ DEFAULT_PARAMS = {
     'norm_eps': 0.01,  # epsilon used for observation normalization
     'norm_clip': 5,  # normalized observations are cropped to this values
     # -----------------
-    'annealing_coeff': 4.0,
-    'beta_final': 0.5      # percentage of time that the expert policy is used
+    'annealing_coeff': 50.0,
+    'beta_final': 0.0      # percentage of time that the expert policy is used
     # -----------------
 }
 

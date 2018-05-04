@@ -30,7 +30,7 @@ class GaussianPolicy:
 
         # Networks.
         with tf.variable_scope('pi'):
-            latent = tf.concat(axis=1, values=[o, g])
+            latent = o#tf.concat(axis=1, values=[o, g])
             for _ in range(self.layers):
                 latent = tf.layers.dense(latent, self.hidden, activation=tf.nn.relu)
             self.mu_tf = tf.layers.dense(latent, dimu, activation=None)

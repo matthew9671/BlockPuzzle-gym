@@ -14,17 +14,19 @@ import gym_blocks
 @click.argument('policy_file', type=str)
 @click.option('--seed', type=int, default=0)
 @click.option('--n_test_rollouts', type=int, default=10)
+@click.option('--env_name', type=str, default='')
 @click.option('--render', type=int, default=1)
 @click.option('--level', type=int, default=0)
 @click.option('--dimo', type=int, default=40)
-def main(policy_file, seed, n_test_rollouts, render, level, dimo):
+def main(policy_file, seed, n_test_rollouts, render, level, dimo, env_name):
     set_global_seeds(seed)
 
     PGGD.DIMO = dimo
     # Load policy.
     with open(policy_file, 'rb') as f:
         policy = pickle.load(f)
-    env_name = policy.info['env_name']
+    if env_name == '':
+        env_name = policy.info['env_name']
 
     # Prepare params.
     params = config.DEFAULT_PARAMS
