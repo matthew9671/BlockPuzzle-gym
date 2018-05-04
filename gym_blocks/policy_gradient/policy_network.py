@@ -42,3 +42,14 @@ class GaussianPolicy:
             self.da_tf = self.max_u * tf.tanh(self.mu_tf)
             self.a_prob_tf = self.pi_tf.prob(self.u_tf)
             # print(self.a_prob_tf)
+
+            vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope)
+            self.saver = tf.train.Saver(vars)
+
+    def save_weights(self, sess, path):
+        print("Saving weights!")
+        self.saver.save(sess, "{}/weights".format(path))
+
+    def load_weights(self, sess, path):
+        print("Loading weights!")
+        self.saver.restore(sess, path)

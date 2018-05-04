@@ -6,8 +6,7 @@ from mujoco_py import MujocoException
 
 from baselines.her.util import convert_episode_to_batch_major, store_args
 
-class ImitationRollout:
-
+class RolloutImitator:
     @store_args
     def __init__(self, make_env, policy, expert, dims, logger, T, rollout_batch_size=1,
                  exploit=False, use_target_net=False, compute_Q=False, noise_eps=0,
@@ -224,7 +223,7 @@ class ImitationRollout:
                 self.logger.warning('NaN caught during rollout generation. Trying again...')
                 self.reset_all_rollouts(test)
                 return self.generate_rollouts_for_imitation()
-                
+
             if t >= T_switch:
                 obs.append(o.copy())
                 acts.append(u.copy())

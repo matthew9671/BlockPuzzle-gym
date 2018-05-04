@@ -81,6 +81,41 @@ class RolloutStudent:
         else:
             return None
 
+    def trim(self, o, g, ag, dimo, dimg):
+        # No need to trim
+        if o.shape[-1] == dimo:
+            return o, g, ag
+        # If the shapes don't match, it means there are one extra block
+        # we need to get rid of
+        if len(o.shape) == 1:
+            o_ = o[:dimo]
+            g_, ag_ = []
+            num_objs = (int)(dimg ** 0.5) + 1
+            assert (int)(len(g) ** 0.5) == num_objs
+            for i in range(len(g)):
+                if (i // num_objs != (num_objs - 1) and
+                    i % num_objs != (num_objs - 1)):
+                    g_.append(g[i])
+                    ag_.append(ag[i])
+            g_ = np.asarray(g_)
+            ag_ = np.asarray(ag_)
+        else:
+            o_ = o[:,:dimo]
+            batch_size = o.shape[0]
+            g_ = [[] for _ in range(batch_size)]
+            ag_ = [[] for _ in range(batch_size)]
+            num_objs = (int)(dimg ** 0.5) + 1
+            assert (int)(g.shape[1] ** 0.5) == num_objs
+            for i in range(g.shape[1]):
+                if (i // num_objs != (num_objs - 1) and
+                    i % num_objs != (num_objs - 1)):
+                    for j in range(batch_size):
+                        g_[j].append(g[j][i])
+                        ag_[j].append(ag[j][i])
+            g_ = np.asarray(g_)
+            ag_ = np.asarray(ag_)
+        return o_, g_, ag_
+
     def generate_rollouts(self, render=False, test=False, exploit=False):
         """Performs `rollout_batch_size` rollouts in parallel for time horizon `T` with the current
         policy acting on it accordingly.
@@ -104,12 +139,12 @@ class RolloutStudent:
         info_values = [np.empty((self.T, self.rollout_batch_size, self.dims['info_' + key]), np.float32) for key in self.info_keys]
         for t in range(self.T):
             if np.random.rand() < beta:
-                policy_output = self.expert.get_actions(o, ag, self.g, compute_raw=True)
+                o_, g_, ag_ = self.trim(o, self.g, ag, self.expert.dimo, self.expert.dimg)
+                policy_output = self.expert.get_actions(o_, ag_, g_, compute_raw=True)
                 u, raw = policy_output
             else:
                 policy_output = self.policy.get_actions(
                     o, ag, self.g, exploit=exploit)
-
                 u, raw, sigma = policy_output
             # We can't report sigma accurately when we are using the expert
             if self.expert != None:
@@ -219,6 +254,9 @@ class RolloutStudent:
         """
         with open(path, 'wb') as f:
             pickle.dump(self.policy, f)
+
+    def save_policy_weights(self, path):
+        self.policy.save_weights(path)
 
     def logs(self, prefix='worker'):
         """Generates a dictionary that contains all collected statistics.

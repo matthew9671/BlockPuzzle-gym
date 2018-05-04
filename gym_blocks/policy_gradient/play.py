@@ -6,7 +6,7 @@ from baselines import logger
 from baselines.common import set_global_seeds
 import config
 from rollout import RolloutStudent
-from ddpg import DDPG
+from pggd import PGGD
 
 import gym_blocks
 
@@ -20,7 +20,7 @@ import gym_blocks
 def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     set_global_seeds(seed)
 
-    DDPG.DIMO = dimo
+    PGGD.DIMO = dimo
     # Load policy.
     with open(policy_file, 'rb') as f:
         policy = pickle.load(f)
@@ -39,7 +39,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     eval_params = {
         'exploit': True,
         'use_target_net': params['test_with_polyak'],
-        'compute_Q': True,
+        'compute_Q': False,
         'rollout_batch_size': 1,
         'render': bool(render),
     }
@@ -47,7 +47,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     for name in ['T', 'gamma', 'noise_eps', 'random_eps']:
         eval_params[name] = params[name]
     
-    evaluator = RolloutStudent(params['make_env'], policy, dims, logger, **eval_params)
+    evaluator = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
     evaluator.seed(seed)
 
     # Run evaluation.
@@ -57,7 +57,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
         evaluator.increase_difficulty()
 
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=True, compute_Attention=False)
+        evaluator.generate_rollouts(render=True, test=False, exploit=True)
 
     # record logs
     for key, val in evaluator.logs('test'):

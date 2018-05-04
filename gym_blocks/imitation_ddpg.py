@@ -80,7 +80,7 @@ class DDPG(object):
             stage_shapes[key + '_2'] = stage_shapes[key]
         stage_shapes['r'] = (None,)
         # ----------
-        stage_shapes['Q_expert'] = (None,)
+        stage_shapes['Q_expert'] = (None,)i
         stage_shapes['u_expert'] = (None, self.dimu)
         # ----------
         self.stage_shapes = stage_shapes

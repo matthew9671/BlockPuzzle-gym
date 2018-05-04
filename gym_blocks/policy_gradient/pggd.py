@@ -103,6 +103,7 @@ class PGGD(object):
         # -------------------
         buffer_shapes['G'] = (self.T,)
         buffer_shapes['sigma'] = (self.T, self.dimu)
+        self.weight_path = None
         # -------------------
         buffer_size = (self.buffer_size // self.rollout_batch_size) * self.rollout_batch_size
         self.buffer = ReplayBuffer(buffer_shapes, buffer_size, self.T, self.sample_transitions)
@@ -119,10 +120,21 @@ class PGGD(object):
             g = g.reshape(*g_shape)
         o = np.clip(o, -self.clip_obs, self.clip_obs)
         g = np.clip(g, -self.clip_obs, self.clip_obs)
+
         return o, g
 
     # -------------------------------
+    # If observation has more dimensions than what the policy takes in
+    # then just truncate it.
     def get_actions(self, o, ag, g, exploit=False):
+        # if len(o.shape) == 1:
+        #     o = o[:self.dimo]
+        #     g = g[:self.dimg]
+        #     ag = ag[:self.dimg]
+        # else:
+        #     o = o[:,:self.dimo]
+        #     g = g[:,:self.dimg]
+        #     ag = ag[:,:self.dimg]
         o, g = self._preprocess_og(o, ag, g)
         policy = self.main
         # values to compute
@@ -272,7 +284,6 @@ class PGGD(object):
 
         # mini-batch sampling.
         batch = self.staging_tf.get()
-        # print("########", batch)
         batch_tf = OrderedDict([(key, batch[i])
                                 for i, key in enumerate(self.stage_shapes.keys())])
         batch_tf['r'] = tf.reshape(batch_tf['r'], [-1, 1])
@@ -300,12 +311,8 @@ class PGGD(object):
         # ---------------------------
         # loss functions
         log_prob = tf.reduce_sum(tf.log(tf.clip_by_value(self.main.a_prob_tf,1e-10,1.0)), axis=1)
-        print("############ log_prob: ", log_prob)
-        print("############ batch_tf['G']: ", batch_tf['G'])
         neg_weighted_log_prob = -tf.multiply(batch_tf['G'], log_prob)
-        print("############ neg_weighted_log_prob: ", neg_weighted_log_prob)
         self.pi_loss_tf = tf.reduce_mean(neg_weighted_log_prob)
-        # self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.a_tf / self.max_u))
         pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         assert len(self._vars('main/pi')) == len(pi_grads_tf)
         self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
@@ -366,8 +373,11 @@ class PGGD(object):
         self.dimg = dims['g']
         self.dimu = dims['u']
       
+    def save_weights(self, path):
+        self.main.save_weights(self.sess, path)
+        self.weight_path = path
+
     def __setstate__(self, state):
-        print("__setstate__ is called!")
         if 'sample_transitions' not in state:
             # We don't need this for playing the policy.
             state['sample_transitions'] = None
@@ -377,9 +387,13 @@ class PGGD(object):
         for k, v in state.items():
             if k[-6:] == '_stats':
                 self.__dict__[k] = v
+        self.weight_path = state['weight_path']
         # load TF variables
         vars = [x for x in self._global_vars('') if 'buffer' not in x.name]
         assert(len(vars) == len(state["tf"]))
         node = [tf.no_op() if 'o_stats' in var.name else tf.assign(var, val) 
                 for var, val in zip(vars, state["tf"])]
         self.sess.run(node)
+        if self.weight_path != None:
+            print("Reading weights for sure this time!")
+            self.main.load_weights(self.sess, tf.train.latest_checkpoint(self.weight_path))

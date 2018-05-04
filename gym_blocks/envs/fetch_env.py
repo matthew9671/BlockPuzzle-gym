@@ -348,6 +348,7 @@ class BlocksTouchEnv(BlocksEnv):
 
     def set_test(self):
         self._randomize_objects(True)
+        self.goal = self._sample_goal().copy()
         return self._get_obs()
 
     def _randomize_objects(self, test=False):
@@ -423,6 +424,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
 
     def set_test(self):
         self._randomize_objects(True)
+        self.goal = self._sample_goal().copy()
         return self._get_obs()
 
     def _randomize_objects(self, test=False):

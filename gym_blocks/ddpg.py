@@ -348,11 +348,9 @@ class DDPG(object):
         # self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
 
     def __setstate__(self, state):
-        print("__setstate__ is called!")
         if 'sample_transitions' not in state:
             # We don't need this for playing the policy.
             state['sample_transitions'] = None
-
         self.__init__(**state)
         # set up stats (they are overwritten in __init__)
         for k, v in state.items():
