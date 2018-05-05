@@ -9,7 +9,7 @@ GREY = 0
 RED = 1
 GREEN = 2
 BLUE = 3
-COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
+COLORS_RGB = [(100, 100, 100), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
 BLOCK_SIZE = 0.05
 MIN_BLOCK_DIST = 1.5 * BLOCK_SIZE
@@ -209,9 +209,6 @@ class BlocksEnv(robot_env.RobotEnv):
             'observation': obs.copy(),
             'achieved_goal': achieved_goal.copy(),
             'desired_goal': self.goal.copy(),
-            # We are getting rid of the goals here
-            # 'achieved_goal': np.asarray([0]),
-            # 'desired_goal': np.asarray([0]),
         }
 
     def _viewer_setup(self):
@@ -295,8 +292,13 @@ class BlocksEnv(robot_env.RobotEnv):
             obj_id = self.id2obj[i]
             if obj_id != None:
                 name = self.sim.model.geom_id2name(i)
-                self.color_modder.set_rgb(name, 
-                    COLORS_RGB[self.obj_colors[obj_id]])
+                if 'table' in name:
+                    color = np.asarray(COLORS_RGB[self.obj_colors[obj_id]])
+
+                    self.color_modder.set_rgb(name, color/2)
+                else:
+                    self.color_modder.set_rgb(name, 
+                        COLORS_RGB[self.obj_colors[obj_id]])
 
 class GripperTouchEnv(BlocksEnv):
     """A very simple environment in which the gripper has to touch the block"""
@@ -385,7 +387,7 @@ class BlocksTouchEnv(BlocksEnv):
 class BlocksTouchChooseEnv(BlocksEnv):
     """An environment in which the gripper has to make 
     blocks of the right colors touch"""
-    def __init__(self, curriculum, *args, **kwargs):
+    def __init__(self, curriculum, challenge=True, *args, **kwargs):
         super(BlocksTouchChooseEnv, self).__init__(*args, **kwargs, num_blocks=3)
         # utils.EzPickle.__init__(self)
         if curriculum:
@@ -397,6 +399,8 @@ class BlocksTouchChooseEnv(BlocksEnv):
         else:
             self.wrong_obj_range = 0
             self.max_obj_range = 0.2
+
+        self.challenge = challenge
 
     def increase_difficulty(self):
         self.obj_range += self.obj_range_step
@@ -431,12 +435,18 @@ class BlocksTouchChooseEnv(BlocksEnv):
         object_xpos = self.initial_gripper_xpos[:2]
         # Get the relevant parameters for setting up the environment
         # If we are testing, then use the hardest set of parameters 
-        if test:
+        if test or self.challenge:
             obj_range = self.max_obj_range
             wrong_obj_range = 0
         else:
             obj_range = self.obj_range
             wrong_obj_range = self.wrong_obj_range
+        if self.challenge:
+            max_wrong_obj_range = 0.04
+            min_obj_range = 0.15
+        else:
+            min_obj_range = MIN_BLOCK_DIST
+            max_wrong_obj_range = self.max_obj_range
         # Find the block indices corresponding to each color
         for i in range(3):
             if self.obj_colors[i+2] == BLUE:
@@ -465,7 +475,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         while do:
             direction = np.random.normal(size=2)
             direction = direction / np.linalg.norm(direction)
-            mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
+            mag = np.random.uniform(min_obj_range, obj_range)
             object_xpos = (object0_pos + direction * mag)
             do = out_of_table(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(green))
@@ -482,7 +492,7 @@ class BlocksTouchChooseEnv(BlocksEnv):
         while do:
             direction = np.random.normal(size=2)
             direction = direction / np.linalg.norm(direction)
-            mag = np.random.uniform(wrong_obj_range, self.max_obj_range)
+            mag = np.random.uniform(wrong_obj_range, max_wrong_obj_range)
             object_xpos = (center_pos + direction * mag)
             do = (out_of_table(object_xpos) 
                 or np.linalg.norm(object_xpos - object0_pos) < MIN_BLOCK_DIST

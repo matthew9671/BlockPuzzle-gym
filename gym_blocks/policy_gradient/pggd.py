@@ -388,6 +388,7 @@ class PGGD(object):
             if k[-6:] == '_stats':
                 self.__dict__[k] = v
         self.weight_path = state['weight_path']
+        self.weight_path = "/Users/matt/RL/Results/5-3blocks-GPGGD-3-256/weights"
         # load TF variables
         vars = [x for x in self._global_vars('') if 'buffer' not in x.name]
         assert(len(vars) == len(state["tf"]))
@@ -396,4 +397,6 @@ class PGGD(object):
         self.sess.run(node)
         if self.weight_path != None:
             print("Reading weights for sure this time!")
-            self.main.load_weights(self.sess, tf.train.latest_checkpoint(self.weight_path))
+            print(self.weight_path)
+            print(tf.train.latest_checkpoint(self.weight_path))
+            self.main.load_weights(self.sess, self.weight_path)

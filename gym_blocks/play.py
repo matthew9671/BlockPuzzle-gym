@@ -57,7 +57,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
         evaluator.increase_difficulty()
 
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=True, compute_Attention=False)
+        evaluator.generate_rollouts(render=True, test=False, compute_Attention=False)
 
     # record logs
     for key, val in evaluator.logs('test'):
