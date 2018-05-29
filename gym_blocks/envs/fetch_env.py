@@ -294,8 +294,7 @@ class BlocksEnv(robot_env.RobotEnv):
                 name = self.sim.model.geom_id2name(i)
                 if 'table' in name:
                     color = np.asarray(COLORS_RGB[self.obj_colors[obj_id]])
-
-                    self.color_modder.set_rgb(name, color/2)
+                    self.color_modder.set_rgb(name, color * 2)
                 else:
                     self.color_modder.set_rgb(name, 
                         COLORS_RGB[self.obj_colors[obj_id]])

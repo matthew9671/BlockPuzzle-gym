@@ -24,7 +24,7 @@ DEFAULT_PARAMS = {
     'hidden': 256,  # number of neurons in each hidden layers
     'network_class': 'gym_blocks.policy_gradient.policy_network:GaussianPolicy',
     'Q_lr': 0.002, # critic learning rate
-    'pi_lr': 0.0001,  # actor learning rate
+    'pi_lr': 0.001,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)

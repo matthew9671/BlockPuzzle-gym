@@ -58,8 +58,10 @@ args = parser.parse_args()
 
 # Load all data.
 data = {}
+configs = ['DDPG-20cores']
 paths = [os.path.abspath(os.path.join(path, '..')) for path in glob2.glob(os.path.join(args.dir, '**', 'progress.csv'))]
-for curr_path in paths:
+for i in range(len(paths)):
+    curr_path = paths[i]
     if not os.path.isdir(curr_path):
         continue
     results = load_results(os.path.join(curr_path, 'progress.csv'))
@@ -70,7 +72,10 @@ for curr_path in paths:
     with open(os.path.join(curr_path, 'params.json'), 'r') as f:
         params = json.load(f)
 
-    success_rate = np.array(results['finals/success_rate'])
+    try:
+        success_rate = np.array(results['finals/success_rate'])
+    except:
+        success_rate = np.array(results['test/success_rate'])
     epoch = np.array(results['epoch']) + 1
     env_id = params['env_name']
     replay_strategy = params['replay_strategy']
@@ -83,7 +88,8 @@ for curr_path in paths:
         config += '-dense'
     else:
         config += '-sparse'
-    env_id = env_id.replace('Dense', '')
+    config = configs[i]
+    env_id = "3 blocks-DDPG (20 cores)"# env_id.replace('Dense', '')
 
     # Process and smooth data.
     assert success_rate.shape == epoch.shape
@@ -107,10 +113,14 @@ for env_id in sorted(data.keys()):
     for config in sorted(data[env_id].keys()):
         xs, ys = zip(*data[env_id][config])
         xs, ys = pad(xs), pad(ys)
+        length = 500
+        x = xs[0][:length]
+        y = ys[0][:length]
+        # print (x, ys)
         assert xs.shape == ys.shape
 
-        plt.plot(xs[0], np.nanmedian(ys, axis=0), label=config)
-        plt.fill_between(xs[0], np.nanpercentile(ys, 25, axis=0), np.nanpercentile(ys, 75, axis=0), alpha=0.25)
+        plt.plot(x, y, label=config)
+        # plt.fill_between(xs[0], np.nanpercentile(ys, 25, axis=0), np.nanpercentile(ys, 75, axis=0), alpha=0.25)
     plt.title(env_id)
     plt.xlabel('Epoch')
     plt.ylabel('Median Success Rate')
