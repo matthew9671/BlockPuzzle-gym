@@ -20,7 +20,7 @@ import gym_blocks
 def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     set_global_seeds(seed)
 
-    DDPG.DIMO = dimo
+    # DDPG.DIMO = dimo
     # Load policy.
     with open(policy_file, 'rb') as f:
         policy = pickle.load(f)

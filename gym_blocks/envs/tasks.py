@@ -101,6 +101,28 @@ class BlocksTouchChooseCurriculum(fetch_env.BlocksTouchChooseEnv, utils.EzPickle
             initial_qpos=initial_qpos, reward_type=reward_type)
         utils.EzPickle.__init__(self)
 
+class BlocksTouchVariationEnv(fetch_env.BlocksTouchVariationEnv, utils.EzPickle):
+    def __init__(self, reward_type='sparse'):
+        initial_qpos = {
+            'robot0:slide0': 0.405,
+            'robot0:slide1': 0.48,
+            'robot0:slide2': 0.0,
+            'table0:slide0': 1.05,
+            'table0:slide1': 0.4,
+            'table0:slide2': 0.0,
+            'object0:joint': [1.275, 0.6, 0.46, 1., 0., 0., 0.],
+            'object1:joint': [1.3, 0.75, 0.46, 1., 0., 0., 0.],
+            'object2:joint': [1.075, 0.425, 0.46, 1., 0., 0., 0.],
+            'object3:joint': [1.3, 0.425, 0.46, 1., 0., 0., 0.]
+        }
+        fetch_env.BlocksTouchVariationEnv.__init__(
+            self, model_path='fetch/4blocks.xml', has_object=True, 
+            block_gripper=True, n_substeps=20,
+            gripper_extra_height=0.2, target_in_the_air=True, target_offset=0.0,
+            obj_range=0.15, target_range=0.15, distance_threshold=0.05,
+            initial_qpos=initial_qpos, reward_type=reward_type)
+        utils.EzPickle.__init__(self)
+
 class ToppleTowerEnv(fetch_env.ToppleTowerEnv, utils.EzPickle):
     def __init__(self, reward_type='sparse'):
         initial_qpos = {

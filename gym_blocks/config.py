@@ -165,10 +165,17 @@ def configure_dims(params):
         'u': env.action_space.shape[0],
         'g': obs['desired_goal'].shape[0],
     }
+
+    # # ------------
+    # if 'Variation' in params['env_name']:
+    #     print("Found Variation in env name")
+    #     dims['o'] -= 1
+    # # ------------
+
     for key, value in info.items():
         value = np.array(value)
         if value.ndim == 0:
             value = value.reshape(1)
         dims['info_{}'.format(key)] = value.shape[0]
-    DDPG.DIMO = dims['o']
+    # DDPG.DIMO = dims['o']
     return dims

@@ -1,7 +1,9 @@
 import tensorflow as tf
 from baselines.her.util import store_args, nn
 
-BLOCK_FEATURES = 15
+COLOR_FEATURES = 4
+BLOCK_BASE_FEATURES = 15
+BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
 ENV_FEATURES = 10
 FEATURE_SIZE = 128
 ATTENTION_CNT = 1
@@ -29,22 +31,25 @@ class AttentionActorCritic:
         self.g_tf = inputs_tf['g']
         self.u_tf = inputs_tf['u']
 
-        # Prepare inputs for actor and critic.
-        o = self.o_stats.normalize(self.o_tf)
-        g = self.g_stats.normalize(self.g_tf)
+        o = self.o_tf
 
         env_size = tf.constant(ENV_FEATURES, tf.int32)
         block_size = tf.constant(BLOCK_FEATURES, tf.int32)
         batch_size = tf.shape(o)[0]
         obs_shape = tf.shape(o)[1]
 
-        num_blocks = tf.cast((obs_shape - env_size) / block_size, tf.int32)
+        max_num_blocks = tf.cast((obs_shape - env_size) / block_size, tf.int32)
+        num_blocks = tf.reshape(tf.slice(o, [0, 0], [-1, 1]), [-1,])
+        num_blocks = tf.cast(num_blocks, tf.int32)
+        o = tf.slice(o, [0, 1], [-1, -1])
+
+        o = self.o_stats.normalize(o)
 
         obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
         obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
         #print('######################', obs_blocks)
 
-        input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES])
+        input_blocks = tf.reshape(obs_blocks, [-1, max_num_blocks, BLOCK_FEATURES])
         #print('######################', input_blocks)
         to_concat = []
 
@@ -62,32 +67,12 @@ class AttentionActorCritic:
                 lstm = tf.contrib.rnn.LSTMCell(RNN_HIDDEN, state_is_tuple=True)
                 # For loop doesn't work! Use tf.nn.dynamic_rnn instead!
                 # https://stackoverflow.com/questions/43341374/tensorflow-dynamic-rnn-lstm-how-to-format-input
-                blocks, _ = tf.nn.dynamic_rnn(lstm, obs_blocks, dtype=tf.float32)
-
-                #print('###########batch', batch_size, RNN_HIDDEN)
-                # hid_state = tf.zeros([batch_size, RNN_HIDDEN])
-                # cell_state = tf.zeros([batch_size, RNN_HIDDEN])
-                # state = (hid_state, cell_state)
-
-                #out = tf.scan(lambda a, x: lstm(x, a), rnn_input, initializer=hid_state)
-                #print('#####ghts)
-                #out', out)
-
-                # blocks = []
-                # for block in rnn_input:
-                #     output, state = lstm(block, state)
-                #     blocks.append(output)
-                #     #print('#####', output)
-                #     #print('#####', state)
-
-                # blocks = tf.stack(blocks)
-                # blocks = tf.transpose(blocks, perm=[1, 0, 2])
+                blocks, _ = tf.nn.dynamic_rnn(lstm, obs_blocks, 
+                    sequence_length=num_blocks, dtype=tf.float32)
 
                 # Add all the blocks together
                 # (?, n)
                 sum_blocks = tf.reduce_sum(blocks, axis=1)
-                #attention_input = tf.concat(axis=2, values=[obs_blocks, sum_blocks])
-                #print('$$$$$$$', attention_input)
 
                 sum_mlp = [64]
                 for num_hidden in sum_mlp:
@@ -97,13 +82,11 @@ class AttentionActorCritic:
                 print(sum_blocks)
                 # (?, 1, n)
                 attention = tf.expand_dims(sum_blocks, 1)
-
                 #print('###########', attention)
 
                 # (?, ?, n)
-                attention = tf.tile(attention, [1, num_blocks, 1])
+                attention = tf.tile(attention, [1, max_num_blocks, 1])
                 #print('###########', attention)
-
 
                 attention = tf.nn.l2_normalize(attention, axis=2)
                 #print('###########', attention)
@@ -145,8 +128,7 @@ class AttentionActorCritic:
                 to_concat.append(gated_obs)
                 to_concat.append(chosen_block)
             gated_obs = tf.concat(axis=1, values=to_concat)
-
-            input_pi = tf.concat(axis=1, values=[obs_env, gated_obs, g])  # for actor
+            input_pi = tf.concat(axis=1, values=[obs_env, gated_obs])  # for actor
 
         # Networks.
         with tf.variable_scope('pi'):
@@ -154,10 +136,10 @@ class AttentionActorCritic:
                 input_pi, [self.hidden] * self.layers + [self.dimu]))
         with tf.variable_scope('Q'):
             # for policy training
-            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, g, self.pi_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, self.pi_tf / self.max_u])
             self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
             # for critic training
-            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, g, self.u_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, self.u_tf / self.max_u])
             self._input_Q = input_Q  # exposed for tests
             self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
 

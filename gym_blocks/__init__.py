@@ -44,3 +44,10 @@ register(
     kwargs={'reward_type': 'sparse'},
     max_episode_steps=50,
 )
+
+register(
+    id='BlocksTouchVariation-v0',
+    entry_point='gym_blocks.envs:BlocksTouchVariationEnv',
+    kwargs={'reward_type': 'sparse'},
+    max_episode_steps=50,
+)

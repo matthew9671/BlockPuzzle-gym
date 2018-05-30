@@ -18,8 +18,6 @@ def dims_to_shapes(input_dims):
 
 class DDPG(object):
 
-    DIMO = 0
-
     @store_args
     def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
@@ -54,6 +52,11 @@ class DDPG(object):
             gamma (float): gamma used for Q learning updates
             reuse (boolean): whether or not the networks should be reused
         """
+        # ------------------
+        # To access information of environment name and stuff
+        self.kwargs = kwargs
+        # ------------------
+
         if self.clip_return is None:
             self.clip_return = np.inf
 
@@ -164,11 +167,19 @@ class DDPG(object):
             transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
             # No need to preprocess the o_2 and g_2 since this is only used for stats
 
-            self.o_stats.update(transitions['o'])
-            self.g_stats.update(transitions['g'])
+            # If we are using the variation environment, then there is an extra dimension
+            # in the observation that tells the agent how many blocks there are
+            # we need to get rid of that while computing the normalized stats
+            if 'Variation' in self.kwargs['info']['env_name']:
+                o = transitions['o'][:,1:]
+            else:
+                o = transitions['o']
+
+            self.o_stats.update(o)
+            # self.g_stats.update(transitions['g'])
 
             self.o_stats.recompute_stats()
-            self.g_stats.recompute_stats()
+            # self.g_stats.recompute_stats()
 
     def get_current_buffer_size(self):
         return self.buffer.get_current_size()
@@ -243,7 +254,12 @@ class DDPG(object):
         with tf.variable_scope('o_stats') as vs:
             if reuse:
                 vs.reuse_variables()
-            self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
+
+            o_stats_dim = self.dimo
+            if 'Variation' in self.kwargs['info']['env_name']:
+                print("Found Variation in env name")
+                o_stats_dim -= 1
+            self.o_stats = Normalizer(o_stats_dim, self.norm_eps, self.norm_clip, sess=self.sess)
         with tf.variable_scope('g_stats') as vs:
             if reuse:
                 vs.reuse_variables()
@@ -310,8 +326,8 @@ class DDPG(object):
         logs = []
         logs += [('stats_o/mean', np.mean(self.sess.run([self.o_stats.mean])))]
         logs += [('stats_o/std', np.mean(self.sess.run([self.o_stats.std])))]
-        logs += [('stats_g/mean', np.mean(self.sess.run([self.g_stats.mean])))]
-        logs += [('stats_g/std', np.mean(self.sess.run([self.g_stats.std])))]
+        # logs += [('stats_g/mean', np.mean(self.sess.run([self.g_stats.mean])))]
+        # logs += [('stats_g/std', np.mean(self.sess.run([self.g_stats.std])))]
 
         if prefix is not '' and not prefix.endswith('/'):
             return [(prefix + '/' + key, val) for key, val in logs]
