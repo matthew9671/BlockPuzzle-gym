@@ -1,4 +1,5 @@
 import os
+import copy
 import numpy as np
 
 from gym.envs.robotics import rotations, utils
@@ -280,9 +281,7 @@ class BlocksEnv(robot_env.RobotEnv):
         return self.has_succeeded
 
     def _env_setup(self, initial_qpos):
-        if self.id2obj == None:
-            # Store the ids of all the object geoms by name
-            self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
+        self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
 
         for name, value in initial_qpos.items():
             self.sim.data.set_joint_qpos(name, value)
@@ -402,7 +401,7 @@ class BlocksTouchEnv(BlocksEnv):
 class BlocksTouchChooseEnv(BlocksEnv):
     """An environment in which the gripper has to make 
     blocks of the right colors touch"""
-    def __init__(self, curriculum, challenge=True, *args, **kwargs):
+    def __init__(self, curriculum, challenge=False, *args, **kwargs):
         super(BlocksTouchChooseEnv, self).__init__(*args, **kwargs, num_blocks=3)
         # utils.EzPickle.__init__(self)
         if curriculum:
@@ -531,7 +530,18 @@ class BlocksTouchVariationEnv(BlocksEnv):
                        'fetch/4blocks.xml']
         self.sims = []
         self.initial_states = []
-        for model_path in list_models:
+        self.sim_id = 0
+        self.viewers = [None for _ in list_models]
+        self.set_up = [False for _ in list_models]
+
+        def valid_key(key, num_grey):
+            if "object" in key:
+                index = int(key[6:key.find(":")])
+                return index < (num_grey + 2)
+            else:
+                return True
+
+        for i,model_path in enumerate(list_models):
 
             if model_path.startswith('/'):
                 fullpath = model_path
@@ -543,6 +553,10 @@ class BlocksTouchVariationEnv(BlocksEnv):
             model = mujoco_py.load_model_from_path(fullpath)
             sim = mujoco_py.MjSim(model, nsubsteps=kwargs['n_substeps'])
             self.sims.append(sim)
+            self.sim = sim
+            initial_qpos = {key:value for key, value in self.initial_qpos.items() if valid_key(key, i)}
+            self._env_setup(initial_qpos=initial_qpos)
+            self.initial_states.append(copy.deepcopy(sim.get_state()))
 
         self.obj_range = 0.08
         self.obj_range_step = 0.025
@@ -632,6 +646,8 @@ class BlocksTouchVariationEnv(BlocksEnv):
         # 2 colored blocks + gripper and table + grey blocks
         self.num_objs = 4 + num_grey
         self.sim = self.sims[num_grey]
+        self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
+        self.sim_id = num_grey
 
         def valid_key(key):
             if "object" in key:
@@ -645,10 +661,18 @@ class BlocksTouchVariationEnv(BlocksEnv):
         self.achieved_goal = -1 * np.ones([self.max_num_blocks + 2, self.max_num_blocks + 2])
         # Randomize colors for each object
         self.obj_colors = self._sample_colors()
-        self._env_setup(initial_qpos=initial_qpos)
+        # if not self.set_up[num_grey]:
+        #     self._env_setup(initial_qpos=initial_qpos)
+        #     self.set_up[num_grey] = True
+
+        self.sim.set_state(copy.deepcopy(self.initial_states[num_grey]))
         # Randomize start position of each object
         self._randomize_objects(test)
         self.sim.forward()
+
+        if self.viewer != None:
+            self.viewer.update_sim(self.sim)
+
         self.has_succeeded = False
         return True
 
@@ -708,7 +732,7 @@ class BlocksTouchVariationEnv(BlocksEnv):
                 do = False
                 object_xpos = self._sample_from_table()
                 # The for-else statement!
-                for i, object_pos in enumerate(obj_positions):
+                for object_pos in obj_positions:
                     if np.linalg.norm(object_xpos - object_pos) < MIN_BLOCK_DIST:
                         do = True
                         break

@@ -6,6 +6,14 @@ from mujoco_py import MujocoException
 
 from baselines.her.util import convert_episode_to_batch_major, store_args
 
+# Global constants repeated in policy_network.py
+# Really bad style
+# Sorry.
+COLOR_FEATURES = 4
+ENV_FEATURES = 10
+BLOCK_BASE_FEATURES = 15
+BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
+
 class RolloutStudent:
 
     @store_args
@@ -31,6 +39,8 @@ class RolloutStudent:
             history_len (int): length of history for statistics smoothing
             render (boolean): whether or not to render the rollouts
         """
+        self.kwargs = self.policy.kwargs
+
         self.envs = [make_env() for _ in range(rollout_batch_size)]
         assert self.T > 0
 
@@ -81,39 +91,60 @@ class RolloutStudent:
         else:
             return None
 
-    def trim(self, o, g, ag, dimo, dimg):
+    def trim(self, o, g, ag, dimo, dimg, num_objs=4):
         # No need to trim
         if o.shape[-1] == dimo:
             return o, g, ag
-        # If the shapes don't match, it means there are one extra block
+        # If the shapes don't match, it means there are extra blocks
         # we need to get rid of
+
         if len(o.shape) == 1:
-            o_ = o[:dimo]
+            if 'Variation' in self.kwargs['info']['env_name']:
+                # The observation includes environment features 
+                # followed by number of blocks and block features
+                o_ = o[:ENV_FEATURES]
+                num_blocks = (o.shape[0] - 1 - ENV_FEATURES) // BLOCK_FEATURES
+                for i in range(num_blocks):
+                    start = ENV_FEATURES + 1 + i * BLOCK_FEATURES
+                    o_ = np.concatenate([o_, o[start:start+BLOCK_BASE_FEATURES]])
+            else:
+                o_ = o[:dimo]
+            
             g_, ag_ = []
-            num_objs = (int)(dimg ** 0.5) + 1
-            assert (int)(len(g) ** 0.5) == num_objs
+            max_num_objs = (int)(len(g) ** 0.5)
             for i in range(len(g)):
-                if (i // num_objs != (num_objs - 1) and
-                    i % num_objs != (num_objs - 1)):
+                if (i // max_num_objs < num_objs and
+                    i % max_num_objs < num_objs):
                     g_.append(g[i])
                     ag_.append(ag[i])
+            assert(len(g_) == dimg)
             g_ = np.asarray(g_)
             ag_ = np.asarray(ag_)
         else:
-            o_ = o[:,:dimo]
             batch_size = o.shape[0]
             g_ = [[] for _ in range(batch_size)]
             ag_ = [[] for _ in range(batch_size)]
-            num_objs = (int)(dimg ** 0.5) + 1
-            assert (int)(g.shape[1] ** 0.5) == num_objs
+            max_num_objs = (int)(g.shape[1] ** 0.5)
             for i in range(g.shape[1]):
-                if (i // num_objs != (num_objs - 1) and
-                    i % num_objs != (num_objs - 1)):
+                if (i // max_num_objs < num_objs and
+                    i % max_num_objs < num_objs):
                     for j in range(batch_size):
                         g_[j].append(g[j][i])
                         ag_[j].append(ag[j][i])
+            assert(len(g_[0]) == dimg)
             g_ = np.asarray(g_)
             ag_ = np.asarray(ag_)
+            if 'Variation' in self.kwargs['info']['env_name']:
+                # The observation includes environment features 
+                # followed by number of blocks and block features
+                o_ = o[:,:ENV_FEATURES]
+                num_blocks = num_objs - 2
+                for i in range(num_blocks):
+                    start = ENV_FEATURES + 1 + i * BLOCK_FEATURES
+                    o_ = np.concatenate([o_, o[:,start:start+BLOCK_BASE_FEATURES]],
+                                        axis=1)
+            else:
+                o_ = o[:,:dimo]
         return o_, g_, ag_
 
     def generate_rollouts(self, render=False, test=False, exploit=False):

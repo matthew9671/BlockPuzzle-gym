@@ -11,6 +11,13 @@ from baselines.her.normalizer import Normalizer
 from baselines.her.replay_buffer import ReplayBuffer
 from baselines.common.mpi_adam import MpiAdam
 
+# Global constants repeated in policy_network.py
+# Really bad style
+# Sorry.
+COLOR_FEATURES = 4
+ENV_FEATURES = 10
+BLOCK_BASE_FEATURES = 15
+BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
 
 def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
@@ -171,7 +178,8 @@ class DDPG(object):
             # in the observation that tells the agent how many blocks there are
             # we need to get rid of that while computing the normalized stats
             if 'Variation' in self.kwargs['info']['env_name']:
-                o = transitions['o'][:,1:]
+                o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
+                                    transitions['o'][:,ENV_FEATURES+1:]], axis=1)
             else:
                 o = transitions['o']
 

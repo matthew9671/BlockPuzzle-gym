@@ -11,6 +11,13 @@ from baselines.her.normalizer import Normalizer
 from baselines.her.replay_buffer import ReplayBuffer
 from baselines.common.mpi_adam import MpiAdam
 
+# Global constants repeated in policy_network.py
+# Really bad style
+# Sorry.
+COLOR_FEATURES = 4
+ENV_FEATURES = 10
+BLOCK_BASE_FEATURES = 15
+BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
 
 def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
@@ -54,6 +61,11 @@ class PGGD(object):
             gamma (float): gamma used for Q learning updates
             reuse (boolean): whether or not the networks should be reused
         """
+        # ------------------
+        # To access information of environment name and stuff
+        self.kwargs = kwargs
+        # ------------------
+
         if self.clip_return is None:
             self.clip_return = np.inf
 
@@ -182,14 +194,19 @@ class PGGD(object):
             o, o_2, g, ag = transitions['o'], transitions['o_2'], transitions['g'], transitions['ag']
             transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
             # No need to preprocess the o_2 and g_2 since this is only used for stats
+            if 'Variation' in self.kwargs['info']['env_name']:
+                o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
+                                    transitions['o'][:,ENV_FEATURES+1:]], axis=1)
+            else:
+                o = transitions['o']
 
-            self.o_stats.update(transitions['o'])
+            self.o_stats.update(o)
             self.G_stats.update(transitions['G'])
             self.sigma_stats.update(transitions['sigma'])
-            self.g_stats.update(transitions['g'])
+            # self.g_stats.update(transitions['g'])
 
             self.o_stats.recompute_stats()
-            self.g_stats.recompute_stats()
+            # self.g_stats.recompute_stats()
             self.G_stats.recompute_stats()
             self.sigma_stats.recompute_stats()
 
@@ -266,7 +283,11 @@ class PGGD(object):
         with tf.variable_scope('o_stats') as vs:
             if reuse:
                 vs.reuse_variables()
-            self.o_stats = Normalizer(PGGD.DIMO, self.norm_eps, self.norm_clip, sess=self.sess)
+            o_stats_dim = self.dimo
+            if 'Variation' in self.kwargs['info']['env_name']:
+                print("Found Variation in env name")
+                o_stats_dim -= 1
+            self.o_stats = Normalizer(o_stats_dim, self.norm_eps, self.norm_clip, sess=self.sess)
         # --------------
         with tf.variable_scope('G_stats') as vs:
             if reuse:
