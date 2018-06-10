@@ -24,17 +24,19 @@ DEFAULT_PARAMS = {
     'hidden': 256,  # number of neurons in each hidden layers
     # 'network_class': 'baselines.her.actor_critic:ActorCritic',
     # 'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
-    'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
+    # 'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
+    'network_class': 'gym_blocks.actor_critic:ActorCritic',
+    # 'network_class': 'gym_blocks.policy_gradient.policy_network:AttentionGaussianPolicy',
     'Q_lr': 0.002, # critic learning rate
     'pi_lr': 0.002,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
     'clip_obs': 200.,
-    'scope': 'ddpg',  # can be tweaked for testing
+    'scope': 'pggd_ddpg',  # can be tweaked for testing
     'relative_goals': False,
     # training
-    'n_cycles': 0,  # per epoch
+    'n_cycles': 50,  # per epoch
     'rollout_batch_size': 2,  # per mpi thread
     'n_batches': 40,  # training batches per cycle
     'batch_size': 256,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.

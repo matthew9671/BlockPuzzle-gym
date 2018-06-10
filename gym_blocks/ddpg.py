@@ -178,8 +178,9 @@ class DDPG(object):
             # in the observation that tells the agent how many blocks there are
             # we need to get rid of that while computing the normalized stats
             if 'Variation' in self.kwargs['info']['env_name']:
-                o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
-                                    transitions['o'][:,ENV_FEATURES+1:]], axis=1)
+                o = transitions['o'][:,1:]
+                # o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
+                #                     transitions['o'][:,ENV_FEATURES+1:]], axis=1)
             else:
                 o = transitions['o']
 
@@ -303,8 +304,25 @@ class DDPG(object):
         self.Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - self.main.Q_tf))
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
-        Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
-        pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
+        # https://github.com/tensorflow/tensorflow/issues/783
+        def replace_none_with_zero(grads, var_list):
+            result = [grad if grad is not None else tf.zeros_like(var)
+                        for var, grad in zip(var_list, grads)]
+            # count = 0
+            # for grad in grads:
+            #     if grad is None:
+            #         count += 1
+            # print(count)
+            return result
+        # print(tf.gradients(self.Q_loss_tf, self._vars('main/Q')))
+        Q_grads_tf = replace_none_with_zero(tf.gradients(self.Q_loss_tf, self._vars('main/Q')), 
+            self._vars('main/Q'))
+        # print(Q_grads_tf)
+        # print(tf.gradients(self.pi_loss_tf, self._vars('main/pi')))
+        pi_grads_tf = replace_none_with_zero(tf.gradients(self.pi_loss_tf, self._vars('main/pi')), 
+            self._vars('main/pi'))
+        # print(pi_grads_tf)
+        # assert(False)
         assert len(self._vars('main/Q')) == len(Q_grads_tf)
         assert len(self._vars('main/pi')) == len(pi_grads_tf)
         self.Q_grads_vars_tf = zip(Q_grads_tf, self._vars('main/Q'))
@@ -369,3 +387,6 @@ class DDPG(object):
         assert(len(vars) == len(state["tf"]))
         node = [tf.assign(var, val) for var, val in zip(vars, state["tf"])]
         self.sess.run(node)
+
+    def load_weights(self, weight_path):
+        self.main.load_weights(self.sess, weight_path)

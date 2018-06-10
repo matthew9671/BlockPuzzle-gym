@@ -562,6 +562,8 @@ class BlocksTouchVariationEnv(BlocksEnv):
         self.obj_range_step = 0.025
         self.max_obj_range = 0.2
 
+
+
     def _get_obs(self):
         # positions
         grip_pos = self.sim.data.get_site_xpos('robot0:grip')
@@ -575,9 +577,11 @@ class BlocksTouchVariationEnv(BlocksEnv):
         gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
 
         num_blocks = self.num_objs - 2
-        obs = [num_blocks]
+        obs = np.concatenate([[num_blocks], grip_pos, gripper_state, grip_velp, gripper_vel])
         block_features = None
-        for i in range(num_blocks):
+        block_indices = list(range(num_blocks))
+        # np.random.shuffle(block_indices)
+        for i in block_indices:
             obj_name = 'object{}'.format(i)
             temp_pos = self.sim.data.get_site_xpos(obj_name)
             # rotations
@@ -610,8 +614,6 @@ class BlocksTouchVariationEnv(BlocksEnv):
         desired_goal = np.append(self.goal.copy(), 
             np.zeros(max_goal_len - self.goal.shape[0]))
 
-        obs = np.concatenate([grip_pos, gripper_state, grip_velp, gripper_vel, obs])
-
         return {
             'observation': obs.copy(),
             'achieved_goal': achieved_goal.copy(),
@@ -630,7 +632,7 @@ class BlocksTouchVariationEnv(BlocksEnv):
     def _sample_colors(self):
         #              Block0 Block1 
         #                |      |   
-        blockcolors = [GREEN, BLUE] + [GREY] * (self.num_objs - 4)
+        blockcolors = [GREEN, BLUE] + [GREY] * (self.max_num_blocks - 2)
         #np.random.shuffle(blockcolors)
         #     Gripper Table 
         #        |      |   
@@ -675,6 +677,22 @@ class BlocksTouchVariationEnv(BlocksEnv):
 
         self.has_succeeded = False
         return True
+
+    # Alway pretend we have the maximum number of objects in the scene
+    def _sample_goal(self):
+        C = self.obj_colors
+        goal = []
+        for i in range(self.max_num_blocks + 2):
+            for j in range(self.max_num_blocks + 2):
+                if ((C[i] == RED and C[j] == BLUE) or 
+                   (C[i] == BLUE and C[j] == RED)):
+                    goal.append(-1)
+                elif ((C[i] == GREEN and C[j] == BLUE) or 
+                     (C[i] == BLUE and C[j] == GREEN)):
+                    goal.append(1)
+                else:
+                    goal.append(0)
+        return np.asarray(goal)
 
     def _randomize_objects(self, test=False):
         object_xpos = self.initial_gripper_xpos[:2]

@@ -195,8 +195,9 @@ class PGGD(object):
             transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
             # No need to preprocess the o_2 and g_2 since this is only used for stats
             if 'Variation' in self.kwargs['info']['env_name']:
-                o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
-                                    transitions['o'][:,ENV_FEATURES+1:]], axis=1)
+                o = transitions['o'][:,1:]
+                # o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
+                #                     transitions['o'][:,ENV_FEATURES+1:]], axis=1)
             else:
                 o = transitions['o']
 
@@ -334,7 +335,12 @@ class PGGD(object):
         log_prob = tf.reduce_sum(tf.log(tf.clip_by_value(self.main.a_prob_tf,1e-10,1.0)), axis=1)
         neg_weighted_log_prob = -tf.multiply(batch_tf['G'], log_prob)
         self.pi_loss_tf = tf.reduce_mean(neg_weighted_log_prob)
-        pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
+        # https://github.com/tensorflow/tensorflow/issues/783
+        def replace_none_with_zero(grads, var_list):
+            return [grad if grad is not None else tf.zeros_like(var)
+                        for var, grad in zip(var_list, grads)]
+        pi_grads_tf = replace_none_with_zero(tf.gradients(self.pi_loss_tf, self._vars('main/pi')), 
+            self._vars('main/pi'))
         assert len(self._vars('main/pi')) == len(pi_grads_tf)
         self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
         self.pi_grad_tf = flatten_grads(grads=pi_grads_tf, var_list=self._vars('main/pi'))
@@ -409,6 +415,10 @@ class PGGD(object):
             if k[-6:] == '_stats':
                 self.__dict__[k] = v
         self.weight_path = state['weight_path']
+        # Hard override... 
+        # This is due to the fact that the directory that the weights are saved to
+        # might not be the same when it is loaded again
+        # TODO: Delete this!!!!
         self.weight_path = "/Users/matt/RL/Results/5-3blocks-GPGGD-3-256/weights"
         # load TF variables
         vars = [x for x in self._global_vars('') if 'buffer' not in x.name]

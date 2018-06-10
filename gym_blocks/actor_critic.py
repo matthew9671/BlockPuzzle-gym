@@ -233,6 +233,9 @@ class ActorCritic:
         self.g_tf = inputs_tf['g']
         self.u_tf = inputs_tf['u']
 
+        # o = self.o_tf
+        # o = tf.slice(o, [0, 1], [-1, -1])
+        # o = self.o_stats.normalize(o)
         # Prepare inputs for actor and critic.
         o = self.o_stats.normalize(self.o_tf)
         g = self.g_stats.normalize(self.g_tf)

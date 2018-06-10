@@ -30,7 +30,7 @@ DEFAULT_PARAMS = {
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
     'clip_obs': 200.,
-    'scope': 'pggd',  # can be tweaked for testing
+    'scope': 'pggd_ddpg',  # can be tweaked for testing
     'relative_goals': False,
     # training
     'n_cycles': 50,  # per epoch

@@ -28,7 +28,7 @@ def mpi_average(value):
 
 def train(policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_policies, render, level, max_test, **kwargs):
+          save_policies, render, level, max_test, train_render, **kwargs):
     if level > 0:
         l = level
         for i in range(l):
@@ -51,7 +51,7 @@ def train(policy, rollout_worker, evaluator,
         # train
         rollout_worker.clear_history()
         for _ in range(n_cycles):
-            episode = rollout_worker.generate_rollouts()
+            episode = rollout_worker.generate_rollouts(render=train_render)
             policy.store_episode(episode)
             for _ in range(n_batches):
                 policy.train()
@@ -106,7 +106,8 @@ def train(policy, rollout_worker, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True, render=False, max_test=True, policy_file="", level=0
+    override_params={}, save_policies=True, render=False, max_test=True, 
+    policy_file="", weight_file="", level=0, train_render=False
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -169,6 +170,9 @@ def launch(
         # print(dir(policy))
         policy.set_obs_size(dims)
 
+    if weight_file != "":
+        policy.load_weights(weight_file)
+
     rollout_params = {
         'exploit': False,
         'use_target_net': False,
@@ -200,7 +204,7 @@ def launch(
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
-        render=render, level=level, max_test=max_test)
+        render=render, level=level, max_test=max_test, train_render=train_render)
 
 
 @click.command()
@@ -213,9 +217,12 @@ def launch(
 @click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='future', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
 @click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
+@click.option('--weight_file', type=str, default='', help='the path of the pre-learned weights')
 @click.option('--render/--no-render', default=False)
 @click.option('--max_test/--no_max_test', default=True)
 @click.option('--level', type=int, default=0, help='starting difficulty')
+# Debug options
+@click.option('--train_render/--no_train_render', default=False)
 
 def main(**kwargs):
     launch(**kwargs)

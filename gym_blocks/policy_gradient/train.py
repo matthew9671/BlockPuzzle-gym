@@ -28,7 +28,7 @@ def mpi_average(value):
 
 def train(policy, rollout_worker, examiner, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_policies, render, level, curriculum, max_test, **kwargs):
+          save_policies, render, level, curriculum, max_test, train_render, **kwargs):
 
     if curriculum and level > 0:
         l = level
@@ -58,7 +58,7 @@ def train(policy, rollout_worker, examiner, evaluator,
         # train
         rollout_worker.clear_history()
         for _ in range(n_cycles):
-            episode = rollout_worker.generate_rollouts()
+            episode = rollout_worker.generate_rollouts(render=train_render)
             policy.store_episode(episode)
             for _ in range(n_batches):
                 policy.train()
@@ -139,7 +139,8 @@ def train(policy, rollout_worker, examiner, evaluator,
 
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
-    override_params={}, save_policies=True, render=False, max_test=True, expert_file="", policy_file="", level=0, curriculum=True
+    override_params={}, save_policies=True, render=False, max_test=True, 
+    expert_file="", policy_file="", level=0, curriculum=True, train_render=False
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -244,7 +245,8 @@ def launch(
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
-        render=render, level=level, curriculum=curriculum, max_test=max_test)
+        render=render, level=level, curriculum=curriculum, max_test=max_test,
+        train_render=train_render)
 
 
 @click.command()
@@ -262,6 +264,8 @@ def launch(
 @click.option('--max_test/--no_max_test', default=True)
 @click.option('--level', type=int, default=0, help='starting difficulty')
 @click.option('--curriculum/--no_curriculum', default=False)
+# Debug options
+@click.option('--train_render/--no_train_render', default=False)
 def main(**kwargs):
     launch(**kwargs)
 

@@ -14,6 +14,17 @@ ENV_FEATURES = 10
 BLOCK_BASE_FEATURES = 15
 BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
 
+# Code for the colors used in puzzle solving
+GREY = 0
+RED = 1
+GREEN = 2
+BLUE = 3
+NUM_COLORS = 4
+
+def get_color(one_hot):
+    assert(len(one_hot) == NUM_COLORS)
+    return np.argmax(one_hot)
+
 class RolloutStudent:
 
     @store_args
@@ -99,10 +110,12 @@ class RolloutStudent:
         # we need to get rid of
 
         if len(o.shape) == 1:
+            # TODO: Fix this
+            assert(False)
             if 'Variation' in self.kwargs['info']['env_name']:
-                # The observation includes environment features 
-                # followed by number of blocks and block features
-                o_ = o[:ENV_FEATURES]
+                # The observation includes number of blocks  
+                # followed by environment features and block features
+                o_ = o[1:ENV_FEATURES+1]
                 num_blocks = (o.shape[0] - 1 - ENV_FEATURES) // BLOCK_FEATURES
                 for i in range(num_blocks):
                     start = ENV_FEATURES + 1 + i * BLOCK_FEATURES
@@ -135,16 +148,26 @@ class RolloutStudent:
             g_ = np.asarray(g_)
             ag_ = np.asarray(ag_)
             if 'Variation' in self.kwargs['info']['env_name']:
-                # The observation includes environment features 
-                # followed by number of blocks and block features
-                o_ = o[:,:ENV_FEATURES]
+                # The observation includes number of blocks
+                # followed by environment features and block features
+                o_ = o[:,1:ENV_FEATURES+1]
                 num_blocks = num_objs - 2
-                for i in range(num_blocks):
-                    start = ENV_FEATURES + 1 + i * BLOCK_FEATURES
-                    o_ = np.concatenate([o_, o[:,start:start+BLOCK_BASE_FEATURES]],
-                                        axis=1)
+                max_num_blocks = max_num_objs - 2
+                # Only picks the colored blocks
+                block_features = np.empty([batch_size, BLOCK_BASE_FEATURES*num_blocks])
+                for i in range(batch_size):
+                    temp = np.zeros(0)
+                    for j in range(max_num_blocks):
+                        start = ENV_FEATURES + 1 + j * BLOCK_FEATURES
+                        color = get_color(o[i, start+BLOCK_BASE_FEATURES:
+                                                    start+BLOCK_FEATURES])
+                        if (color == GREEN or color == BLUE): 
+                            temp = np.concatenate([temp, o[i,start:start+BLOCK_BASE_FEATURES]])
+                    block_features[i] = temp
+                o_ = np.concatenate([o_, block_features], axis=1)
             else:
                 o_ = o[:,:dimo]
+        assert(o_.shape[1] == dimo)
         return o_, g_, ag_
 
     def generate_rollouts(self, render=False, test=False, exploit=False):
@@ -170,6 +193,7 @@ class RolloutStudent:
         info_values = [np.empty((self.T, self.rollout_batch_size, self.dims['info_' + key]), np.float32) for key in self.info_keys]
         for t in range(self.T):
             if np.random.rand() < beta:
+                # The expert is in charge
                 o_, g_, ag_ = self.trim(o, self.g, ag, self.expert.dimo, self.expert.dimg)
                 policy_output = self.expert.get_actions(o_, ag_, g_, compute_raw=True)
                 u, raw = policy_output

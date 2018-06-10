@@ -39,6 +39,7 @@ class AttentionGaussianPolicy:
         obs_shape = tf.shape(o)[1]
 
         max_num_blocks = tf.cast((obs_shape - env_size) / block_size, tf.int32)
+        # Number of blocks comes first in the observation
         num_blocks = tf.reshape(tf.slice(o, [0, 0], [-1, 1]), [-1,])
         num_blocks = tf.cast(num_blocks, tf.int32)
         o = tf.slice(o, [0, 1], [-1, -1])
@@ -131,20 +132,38 @@ class AttentionGaussianPolicy:
             input_pi = tf.concat(axis=1, values=[obs_env, gated_obs])  # for actor
 
             latent = input_pi
+            # For debugging
+            self.embedding = latent
+
             for _ in range(self.layers):
                 latent = tf.layers.dense(latent, self.hidden, activation=tf.nn.relu)
             self.mu_tf = tf.layers.dense(latent, dimu, activation=None)
             self.sigma_tf = tf.layers.dense(latent, dimu, activation=tf.nn.softplus)
-            self.pi_tf = tf.distributions.Normal(loc=self.mu_tf, scale=self.sigma_tf)
-            self.raw_tf = self.pi_tf.sample()
+            self.pg_pi_tf = tf.distributions.Normal(loc=self.mu_tf, scale=self.sigma_tf)
+            self.raw_tf = self.pg_pi_tf.sample()
             self.a_tf = self.max_u * tf.tanh(self.raw_tf)
             # Deterministic action
             self.da_tf = self.max_u * tf.tanh(self.mu_tf)
-            self.a_prob_tf = self.pi_tf.prob(self.u_tf)
+            self.a_prob_tf = self.pg_pi_tf.prob(self.u_tf)
             # print(self.a_prob_tf)
 
-            vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope)
+            vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
             self.saver = tf.train.Saver(vars)
+            # Stop the gradient if we don't want to train the embbeding of the blocks
+            # input_pi = tf.stop_gradient(input_pi)
+
+        # Actor critic Networks.
+        with tf.variable_scope('pi'):
+            self.pi_tf = self.max_u * tf.tanh(nn(
+                input_pi, [self.hidden] * self.layers + [self.dimu]))
+        with tf.variable_scope('Q'):
+            # for policy training
+            input_Q = tf.concat(axis=1, values=[input_pi, self.pi_tf / self.max_u])
+            self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
+            # for critic training
+            input_Q = tf.concat(axis=1, values=[input_pi, self.u_tf / self.max_u])
+            self._input_Q = input_Q  # exposed for tests
+            self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
 
     def save_weights(self, sess, path):
         print("Saving weights!")
