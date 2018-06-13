@@ -134,13 +134,13 @@ class BlocksEnv(robot_env.RobotEnv):
     # their dot product should equal to the number of non-zero elements
     def compute_reward(self, achieved_goal, goal, info):
         # Compute distance between goal and the achieved goal.
-        goal_len = min(achieved_goal.shape[0], goal.shape[0])
-        achieved_goal = achieved_goal[:goal_len]
-        goal = goal[:goal_len]
+        # goal_len = min(achieved_goal.shape[0], goal.shape[0])
+        # achieved_goal = achieved_goal[:goal_len]
+        # goal = goal[:goal_len]
 
         d = np.sum(achieved_goal * goal, axis=-1)
         c = np.count_nonzero(goal, axis=-1)
-        return (1.0-(d != c).astype(np.float32))
+        return -(d != c).astype(np.float32)
 
     # RobotEnv methods
     # ----------------------------
@@ -276,7 +276,7 @@ class BlocksEnv(robot_env.RobotEnv):
         # Override whatever input it gives
         achieved_goal, desired_goal = self.achieved_goal.ravel(), self.goal
         r = self.compute_reward(achieved_goal, desired_goal, None)
-        if r == 1:
+        if r == 0:
             self.has_succeeded = True
         return self.has_succeeded
 

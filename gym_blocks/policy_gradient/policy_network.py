@@ -150,7 +150,7 @@ class AttentionGaussianPolicy:
             vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
             self.saver = tf.train.Saver(vars)
             # Stop the gradient if we don't want to train the embbeding of the blocks
-            # input_pi = tf.stop_gradient(input_pi)
+            input_pi = tf.stop_gradient(input_pi)
 
         # Actor critic Networks.
         with tf.variable_scope('pi'):

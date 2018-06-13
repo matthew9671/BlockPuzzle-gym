@@ -25,8 +25,8 @@ DEFAULT_PARAMS = {
     # 'network_class': 'baselines.her.actor_critic:ActorCritic',
     # 'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
     # 'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
-    'network_class': 'gym_blocks.actor_critic:ActorCritic',
-    # 'network_class': 'gym_blocks.policy_gradient.policy_network:AttentionGaussianPolicy',
+    # 'network_class': 'gym_blocks.actor_critic:ActorCritic',
+    'network_class': 'gym_blocks.policy_gradient.policy_network:AttentionGaussianPolicy',
     'Q_lr': 0.002, # critic learning rate
     'pi_lr': 0.002,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
