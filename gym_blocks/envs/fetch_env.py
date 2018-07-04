@@ -1,7 +1,10 @@
+import os
+import copy
 import numpy as np
 
 from gym.envs.robotics import rotations, utils
 from gym_blocks.envs import robot_env
+import mujoco_py
 from mujoco_py.modder import TextureModder
 
 # Code for the colors used in puzzle solving
@@ -9,7 +12,9 @@ GREY = 0
 RED = 1
 GREEN = 2
 BLUE = 3
-COLORS_RGB = [(50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
+NUM_COLORS = 4
+
+COLORS_RGB = [(100, 100, 100), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
 
 BLOCK_SIZE = 0.05
 MIN_BLOCK_DIST = 1.5 * BLOCK_SIZE
@@ -25,6 +30,11 @@ TABLE_H -= BLOCK_SIZE / 2
 def out_of_table(pos):
     # print(pos)
     return abs(pos[0] - TABLE_X) > TABLE_W or abs(pos[1] - TABLE_Y) > TABLE_H
+
+def one_hot_color(c):
+    result = np.zeros(NUM_COLORS)
+    result[c] = 1
+    return result
 
 class BlocksEnv(robot_env.RobotEnv):
     """Superclass for all Fetch environments.
@@ -75,6 +85,10 @@ class BlocksEnv(robot_env.RobotEnv):
             model_path=model_path, n_substeps=n_substeps, n_actions=4,
             initial_qpos=initial_qpos)
 
+    def _sample_from_table(self):
+        return np.asarray([TABLE_X + self.np_random.uniform(-TABLE_W, TABLE_W),
+                           TABLE_Y + self.np_random.uniform(-TABLE_H, TABLE_H)])
+
     # For curriculum learning
     def increase_difficulty(self):
         raise NotImplementedError()
@@ -120,6 +134,10 @@ class BlocksEnv(robot_env.RobotEnv):
     # their dot product should equal to the number of non-zero elements
     def compute_reward(self, achieved_goal, goal, info):
         # Compute distance between goal and the achieved goal.
+        # goal_len = min(achieved_goal.shape[0], goal.shape[0])
+        # achieved_goal = achieved_goal[:goal_len]
+        # goal = goal[:goal_len]
+
         d = np.sum(achieved_goal * goal, axis=-1)
         c = np.count_nonzero(goal, axis=-1)
         return -(d != c).astype(np.float32)
@@ -194,8 +212,7 @@ class BlocksEnv(robot_env.RobotEnv):
 
             block_obs = np.concatenate([temp_pos.ravel(), 
                 temp_rel_pos.ravel(), temp_rot.ravel(),
-                temp_velp.ravel(), temp_velr.ravel(),
-                ])
+                temp_velp.ravel(), temp_velr.ravel()])
 
             obs = np.concatenate([obs, block_obs])
 
@@ -256,15 +273,15 @@ class BlocksEnv(robot_env.RobotEnv):
         return np.asarray(goal)
 
     def _is_success(self, achieved_goal, desired_goal):
+        # Override whatever input it gives
+        achieved_goal, desired_goal = self.achieved_goal.ravel(), self.goal
         r = self.compute_reward(achieved_goal, desired_goal, None)
         if r == 0:
             self.has_succeeded = True
         return self.has_succeeded
 
     def _env_setup(self, initial_qpos):
-        if self.id2obj == None:
-            # Store the ids of all the object geoms by name
-            self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
+        self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
 
         for name, value in initial_qpos.items():
             self.sim.data.set_joint_qpos(name, value)
@@ -280,7 +297,8 @@ class BlocksEnv(robot_env.RobotEnv):
             self.sim.step()
 
         # Extract information for sampling goals.
-        self.initial_gripper_xpos = self.sim.data.get_site_xpos('robot0:grip').copy()
+        if not hasattr(self, 'initial_gripper_xpos'):
+            self.initial_gripper_xpos = self.sim.data.get_site_xpos('robot0:grip').copy()
         self.height_offset = self.sim.data.get_site_xpos('object0')[2]
 
         # Change the colors to match the success conditions
@@ -289,8 +307,12 @@ class BlocksEnv(robot_env.RobotEnv):
             obj_id = self.id2obj[i]
             if obj_id != None:
                 name = self.sim.model.geom_id2name(i)
-                self.color_modder.set_rgb(name, 
-                    COLORS_RGB[self.obj_colors[obj_id]])
+                if 'table' in name:
+                    color = np.asarray(COLORS_RGB[self.obj_colors[obj_id]])
+                    self.color_modder.set_rgb(name, color * 2)
+                else:
+                    self.color_modder.set_rgb(name, 
+                        COLORS_RGB[self.obj_colors[obj_id]])
 
 class GripperTouchEnv(BlocksEnv):
     """A very simple environment in which the gripper has to touch the block"""
@@ -342,6 +364,7 @@ class BlocksTouchEnv(BlocksEnv):
 
     def set_test(self):
         self._randomize_objects(True)
+        self.goal = self._sample_goal().copy()
         return self._get_obs()
 
     def _randomize_objects(self, test=False):
@@ -378,7 +401,7 @@ class BlocksTouchEnv(BlocksEnv):
 class BlocksTouchChooseEnv(BlocksEnv):
     """An environment in which the gripper has to make 
     blocks of the right colors touch"""
-    def __init__(self, curriculum, *args, **kwargs):
+    def __init__(self, curriculum, challenge=False, *args, **kwargs):
         super(BlocksTouchChooseEnv, self).__init__(*args, **kwargs, num_blocks=3)
         # utils.EzPickle.__init__(self)
         if curriculum:
@@ -390,6 +413,8 @@ class BlocksTouchChooseEnv(BlocksEnv):
         else:
             self.wrong_obj_range = 0
             self.max_obj_range = 0.2
+
+        self.challenge = challenge
 
     def increase_difficulty(self):
         self.obj_range += self.obj_range_step
@@ -417,18 +442,25 @@ class BlocksTouchChooseEnv(BlocksEnv):
 
     def set_test(self):
         self._randomize_objects(True)
+        self.goal = self._sample_goal().copy()
         return self._get_obs()
 
     def _randomize_objects(self, test=False):
         object_xpos = self.initial_gripper_xpos[:2]
         # Get the relevant parameters for setting up the environment
         # If we are testing, then use the hardest set of parameters 
-        if test:
+        if test or self.challenge:
             obj_range = self.max_obj_range
             wrong_obj_range = 0
         else:
             obj_range = self.obj_range
             wrong_obj_range = self.wrong_obj_range
+        if self.challenge:
+            max_wrong_obj_range = 0.04
+            min_obj_range = 0.15
+        else:
+            min_obj_range = MIN_BLOCK_DIST
+            max_wrong_obj_range = self.max_obj_range
         # Find the block indices corresponding to each color
         for i in range(3):
             if self.obj_colors[i+2] == BLUE:
@@ -457,21 +489,24 @@ class BlocksTouchChooseEnv(BlocksEnv):
         while do:
             direction = np.random.normal(size=2)
             direction = direction / np.linalg.norm(direction)
-            mag = np.random.uniform(MIN_BLOCK_DIST, obj_range)
+            mag = np.random.uniform(min_obj_range, obj_range)
             object_xpos = (object0_pos + direction * mag)
             do = out_of_table(object_xpos)
         object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(green))
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object{}:joint'.format(green), object_qpos)
-        # Set the position of the second block (grey/red)
+        # Set the position of the third block (grey/red)
+        # For the first difficulty level we are going to keep third block fixed in a corner
+        # if self.difficulty == 0:
+        #     return
         object1_pos = object_xpos
         center_pos = (object0_pos + object_xpos) / 2.0
         do = True
         while do:
             direction = np.random.normal(size=2)
             direction = direction / np.linalg.norm(direction)
-            mag = np.random.uniform(wrong_obj_range, self.max_obj_range)
+            mag = np.random.uniform(wrong_obj_range, max_wrong_obj_range)
             object_xpos = (center_pos + direction * mag)
             do = (out_of_table(object_xpos) 
                 or np.linalg.norm(object_xpos - object0_pos) < MIN_BLOCK_DIST
@@ -480,6 +515,253 @@ class BlocksTouchChooseEnv(BlocksEnv):
         assert object_qpos.shape == (7,)
         object_qpos[:2] = object_xpos
         self.sim.data.set_joint_qpos('object{}:joint'.format(wrong), object_qpos)
+
+class BlocksTouchVariationEnv(BlocksEnv):
+    """An environment in which the gripper has to make 
+    blocks of the right colors touch"""
+    def __init__(self, *args, **kwargs):
+        self.max_num_blocks = 4
+        self.initial_qpos = kwargs['initial_qpos']
+
+        super(BlocksTouchVariationEnv, self).__init__(*args, **kwargs, 
+            num_blocks=self.max_num_blocks)
+        list_models = ['fetch/2blocks.xml', 
+                       'fetch/3blocks.xml', 
+                       'fetch/4blocks.xml']
+        self.sims = []
+        self.initial_states = []
+        self.sim_id = 0
+        self.viewers = [None for _ in list_models]
+        self.set_up = [False for _ in list_models]
+
+        def valid_key(key, num_grey):
+            if "object" in key:
+                index = int(key[6:key.find(":")])
+                return index < (num_grey + 2)
+            else:
+                return True
+
+        for i,model_path in enumerate(list_models):
+
+            if model_path.startswith('/'):
+                fullpath = model_path
+            else:
+                fullpath = os.path.join(os.path.dirname(__file__), 'assets', model_path)
+            if not os.path.exists(fullpath):
+                raise IOError('File {} does not exist'.format(fullpath))
+
+            model = mujoco_py.load_model_from_path(fullpath)
+            sim = mujoco_py.MjSim(model, nsubsteps=kwargs['n_substeps'])
+            self.sims.append(sim)
+            self.sim = sim
+            initial_qpos = {key:value for key, value in self.initial_qpos.items() if valid_key(key, i)}
+            self._env_setup(initial_qpos=initial_qpos)
+            self.initial_states.append(copy.deepcopy(sim.get_state()))
+
+        self.obj_range = 0.08
+        self.obj_range_step = 0.025
+        self.max_obj_range = 0.2
+
+
+
+    def _get_obs(self):
+        # positions
+        grip_pos = self.sim.data.get_site_xpos('robot0:grip')
+        dt = self.sim.nsubsteps * self.sim.model.opt.timestep
+        grip_velp = self.sim.data.get_site_xvelp('robot0:grip') * dt
+        robot_qpos, robot_qvel = utils.robot_get_obs(self.sim)
+
+        object_pos, object_rot, object_velp, object_velr, object_rel_pos = [], [], [], [], []
+
+        gripper_state = robot_qpos[-2:]
+        gripper_vel = robot_qvel[-2:] * dt  # change to a scalar if the gripper is made symmetric
+
+        num_blocks = self.num_objs - 2
+        obs = np.concatenate([[num_blocks], grip_pos, gripper_state, grip_velp, gripper_vel])
+        block_features = None
+        block_indices = list(range(num_blocks))
+        # np.random.shuffle(block_indices)
+        for i in block_indices:
+            obj_name = 'object{}'.format(i)
+            temp_pos = self.sim.data.get_site_xpos(obj_name)
+            # rotations
+            temp_rot = rotations.mat2euler(self.sim.data.get_site_xmat(obj_name))
+            # velocities
+            temp_velp = self.sim.data.get_site_xvelp(obj_name) * dt
+            temp_velr = self.sim.data.get_site_xvelr(obj_name) * dt
+            # gripper state
+            temp_rel_pos = temp_pos - grip_pos
+            temp_velp -= grip_velp
+
+            block_obs = np.concatenate([temp_pos.ravel(), 
+                temp_rel_pos.ravel(), temp_rot.ravel(),
+                temp_velp.ravel(), temp_velr.ravel(), 
+                one_hot_color(self.obj_colors[i+2])
+                ])
+
+            block_features = block_obs.shape[0]
+
+            obs = np.concatenate([obs, block_obs])
+
+        padding = np.zeros(block_features * (self.max_num_blocks - num_blocks))
+        obs = np.concatenate([obs, padding])
+
+        assert(self._check_goal())
+        achieved_goal = self.achieved_goal.copy().ravel()
+        max_goal_len = (self.max_num_blocks + 2) ** 2
+        achieved_goal = np.append(achieved_goal, 
+            np.zeros(max_goal_len - achieved_goal.shape[0]))
+        desired_goal = np.append(self.goal.copy(), 
+            np.zeros(max_goal_len - self.goal.shape[0]))
+
+        return {
+            'observation': obs.copy(),
+            'achieved_goal': achieved_goal.copy(),
+            'desired_goal': desired_goal.copy(),
+        }
+
+    def increase_difficulty(self):
+        self.obj_range += self.obj_range_step
+        if self.obj_range > self.max_obj_range:
+            self.obj_range = self.max_obj_range
+            return True
+        else:
+            self.difficulty += 1
+            return False
+
+    def _sample_colors(self):
+        #              Block0 Block1 
+        #                |      |   
+        blockcolors = [GREEN, BLUE] + [GREY] * (self.max_num_blocks - 2)
+        #np.random.shuffle(blockcolors)
+        #     Gripper Table 
+        #        |      |   
+        return [GREY, GREY] + blockcolors
+
+    def set_test(self):
+        # self._randomize_objects(True)
+        # self.goal = self._sample_goal().copy()
+        return self._get_obs()
+
+    def _reset_sim(self, test=False):
+        num_grey = self.np_random.randint(len(self.sims))
+        # 2 colored blocks + gripper and table + grey blocks
+        self.num_objs = 4 + num_grey
+        self.sim = self.sims[num_grey]
+        self.id2obj = [self._geom2objid(i) for i in range(self.sim.model.ngeom)]
+        self.sim_id = num_grey
+
+        def valid_key(key):
+            if "object" in key:
+                index = int(key[6:key.find(":")])
+                return index < (num_grey + 2)
+            else:
+                return True
+
+        initial_qpos = {key:value for key, value in self.initial_qpos.items() if valid_key(key)}
+        
+        self.achieved_goal = -1 * np.ones([self.max_num_blocks + 2, self.max_num_blocks + 2])
+        # Randomize colors for each object
+        self.obj_colors = self._sample_colors()
+        # if not self.set_up[num_grey]:
+        #     self._env_setup(initial_qpos=initial_qpos)
+        #     self.set_up[num_grey] = True
+
+        self.sim.set_state(copy.deepcopy(self.initial_states[num_grey]))
+        # Randomize start position of each object
+        self._randomize_objects(test)
+        self.sim.forward()
+
+        if self.viewer != None:
+            self.viewer.update_sim(self.sim)
+
+        self.has_succeeded = False
+        return True
+
+    # Alway pretend we have the maximum number of objects in the scene
+    def _sample_goal(self):
+        C = self.obj_colors
+        goal = []
+        for i in range(self.max_num_blocks + 2):
+            for j in range(self.max_num_blocks + 2):
+                if ((C[i] == RED and C[j] == BLUE) or 
+                   (C[i] == BLUE and C[j] == RED)):
+                    goal.append(-1)
+                elif ((C[i] == GREEN and C[j] == BLUE) or 
+                     (C[i] == BLUE and C[j] == GREEN)):
+                    goal.append(1)
+                else:
+                    goal.append(0)
+        return np.asarray(goal)
+
+    def _randomize_objects(self, test=False):
+        object_xpos = self.initial_gripper_xpos[:2]
+
+        num_blocks = self.num_objs - 2
+
+        if test:
+            obj_range = self.max_obj_range
+        else:
+            obj_range = self.obj_range
+        
+        min_obj_range = MIN_BLOCK_DIST
+
+        # Find the block indices corresponding to each color
+        for i in range(num_blocks):
+            if self.obj_colors[i+2] == BLUE:
+                blue = i
+            elif self.obj_colors[i+2] == GREEN:
+                green = i
+            elif self.obj_colors[i+2] == RED:
+                bad = i
+
+        # Set the position of the first block (blue)
+        do = True
+        while do:
+            #print(self.initial_gripper_xpos[:2])
+            object_xpos = (self.initial_gripper_xpos[:2] + 
+                self.np_random.uniform(-obj_range/2, obj_range/2, size=2))
+            do = out_of_table(object_xpos)
+
+        object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(blue))
+        assert object_qpos.shape == (7,)
+        object_qpos[:2] = object_xpos
+        self.sim.data.set_joint_qpos('object{}:joint'.format(blue), object_qpos)
+        object0_pos = object_xpos
+        # Set the position of the second block (green)
+        do = True
+        while do:
+            direction = np.random.normal(size=2)
+            direction = direction / np.linalg.norm(direction)
+            mag = np.random.uniform(min_obj_range, obj_range)
+            object_xpos = (object0_pos + direction * mag)
+            do = out_of_table(object_xpos)
+        object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(green))
+        assert object_qpos.shape == (7,)
+        object_qpos[:2] = object_xpos
+        self.sim.data.set_joint_qpos('object{}:joint'.format(green), object_qpos)
+        obj_positions = [object0_pos, object_xpos]
+        for i in range(num_blocks):
+            if blue == i or green == i:
+                continue
+
+            do = True
+            while do:
+                do = False
+                object_xpos = self._sample_from_table()
+                # The for-else statement!
+                for object_pos in obj_positions:
+                    if np.linalg.norm(object_xpos - object_pos) < MIN_BLOCK_DIST:
+                        do = True
+                        break
+                else:
+                    do = out_of_table(object_xpos) 
+        
+            object_qpos = self.sim.data.get_joint_qpos('object{}:joint'.format(i))
+            assert object_qpos.shape == (7,)
+            object_qpos[:2] = object_xpos
+            self.sim.data.set_joint_qpos('object{}:joint'.format(i), object_qpos)
+            obj_positions.append(object_xpos)
 
 class ToppleTowerEnv(BlocksEnv):
     """A very simple environment in which the gripper has to touch the block"""

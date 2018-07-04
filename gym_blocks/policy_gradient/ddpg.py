@@ -11,19 +11,14 @@ from baselines.her.normalizer import Normalizer
 from baselines.her.replay_buffer import ReplayBuffer
 from baselines.common.mpi_adam import MpiAdam
 
-# Global constants repeated in policy_network.py
-# Really bad style
-# Sorry.
-COLOR_FEATURES = 4
-ENV_FEATURES = 10
-BLOCK_BASE_FEATURES = 15
-BLOCK_FEATURES = BLOCK_BASE_FEATURES + COLOR_FEATURES
 
 def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
 
 
 class DDPG(object):
+
+    DIMO = 0
 
     @store_args
     def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
@@ -59,11 +54,6 @@ class DDPG(object):
             gamma (float): gamma used for Q learning updates
             reuse (boolean): whether or not the networks should be reused
         """
-        # ------------------
-        # To access information of environment name and stuff
-        self.kwargs = kwargs
-        # ------------------
-
         if self.clip_return is None:
             self.clip_return = np.inf
 
@@ -174,21 +164,11 @@ class DDPG(object):
             transitions['o'], transitions['g'] = self._preprocess_og(o, ag, g)
             # No need to preprocess the o_2 and g_2 since this is only used for stats
 
-            # If we are using the variation environment, then there is an extra dimension
-            # in the observation that tells the agent how many blocks there are
-            # we need to get rid of that while computing the normalized stats
-            if 'Variation' in self.kwargs['info']['env_name']:
-                o = transitions['o'][:,1:]
-                # o = np.concatenate([transitions['o'][:,:ENV_FEATURES],
-                #                     transitions['o'][:,ENV_FEATURES+1:]], axis=1)
-            else:
-                o = transitions['o']
-
-            self.o_stats.update(o)
-            # self.g_stats.update(transitions['g'])
+            self.o_stats.update(transitions['o'])
+            self.g_stats.update(transitions['g'])
 
             self.o_stats.recompute_stats()
-            # self.g_stats.recompute_stats()
+            self.g_stats.recompute_stats()
 
     def get_current_buffer_size(self):
         return self.buffer.get_current_size()
@@ -263,12 +243,7 @@ class DDPG(object):
         with tf.variable_scope('o_stats') as vs:
             if reuse:
                 vs.reuse_variables()
-
-            o_stats_dim = self.dimo
-            if 'Variation' in self.kwargs['info']['env_name']:
-                print("Found Variation in env name")
-                o_stats_dim -= 1
-            self.o_stats = Normalizer(o_stats_dim, self.norm_eps, self.norm_clip, sess=self.sess)
+            self.o_stats = Normalizer(self.dimo, self.norm_eps, self.norm_clip, sess=self.sess)
         with tf.variable_scope('g_stats') as vs:
             if reuse:
                 vs.reuse_variables()
@@ -304,25 +279,8 @@ class DDPG(object):
         self.Q_loss_tf = tf.reduce_mean(tf.square(tf.stop_gradient(target_tf) - self.main.Q_tf))
         self.pi_loss_tf = -tf.reduce_mean(self.main.Q_pi_tf)
         self.pi_loss_tf += self.action_l2 * tf.reduce_mean(tf.square(self.main.pi_tf / self.max_u))
-        # https://github.com/tensorflow/tensorflow/issues/783
-        def replace_none_with_zero(grads, var_list):
-            result = [grad if grad is not None else tf.zeros_like(var)
-                        for var, grad in zip(var_list, grads)]
-            # count = 0
-            # for grad in grads:
-            #     if grad is None:
-            #         count += 1
-            # print(count)
-            return result
-        # print(tf.gradients(self.Q_loss_tf, self._vars('main/Q')))
-        Q_grads_tf = replace_none_with_zero(tf.gradients(self.Q_loss_tf, self._vars('main/Q')), 
-            self._vars('main/Q'))
-        # print(Q_grads_tf)
-        # print(tf.gradients(self.pi_loss_tf, self._vars('main/pi')))
-        pi_grads_tf = replace_none_with_zero(tf.gradients(self.pi_loss_tf, self._vars('main/pi')), 
-            self._vars('main/pi'))
-        # print(pi_grads_tf)
-        # assert(False)
+        Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
+        pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         assert len(self._vars('main/Q')) == len(Q_grads_tf)
         assert len(self._vars('main/pi')) == len(pi_grads_tf)
         self.Q_grads_vars_tf = zip(Q_grads_tf, self._vars('main/Q'))
@@ -352,8 +310,8 @@ class DDPG(object):
         logs = []
         logs += [('stats_o/mean', np.mean(self.sess.run([self.o_stats.mean])))]
         logs += [('stats_o/std', np.mean(self.sess.run([self.o_stats.std])))]
-        # logs += [('stats_g/mean', np.mean(self.sess.run([self.g_stats.mean])))]
-        # logs += [('stats_g/std', np.mean(self.sess.run([self.g_stats.std])))]
+        logs += [('stats_g/mean', np.mean(self.sess.run([self.g_stats.mean])))]
+        logs += [('stats_g/std', np.mean(self.sess.run([self.g_stats.std])))]
 
         if prefix is not '' and not prefix.endswith('/'):
             return [(prefix + '/' + key, val) for key, val in logs]
@@ -387,6 +345,3 @@ class DDPG(object):
         assert(len(vars) == len(state["tf"]))
         node = [tf.assign(var, val) for var, val in zip(vars, state["tf"])]
         self.sess.run(node)
-
-    def load_weights(self, weight_path):
-        self.main.load_weights(self.sess, weight_path)

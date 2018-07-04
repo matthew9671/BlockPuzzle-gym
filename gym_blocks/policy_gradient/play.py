@@ -6,7 +6,7 @@ from baselines import logger
 from baselines.common import set_global_seeds
 import config
 from rollout import RolloutStudent
-from ddpg import DDPG
+from pggd import PGGD
 
 import gym_blocks
 
@@ -14,17 +14,19 @@ import gym_blocks
 @click.argument('policy_file', type=str)
 @click.option('--seed', type=int, default=0)
 @click.option('--n_test_rollouts', type=int, default=10)
+@click.option('--env_name', type=str, default='')
 @click.option('--render', type=int, default=1)
 @click.option('--level', type=int, default=0)
 @click.option('--dimo', type=int, default=40)
-def main(policy_file, seed, n_test_rollouts, render, level, dimo):
+def main(policy_file, seed, n_test_rollouts, render, level, dimo, env_name):
     set_global_seeds(seed)
 
-    # DDPG.DIMO = dimo
+    PGGD.DIMO = dimo
     # Load policy.
     with open(policy_file, 'rb') as f:
         policy = pickle.load(f)
-    env_name = policy.info['env_name']
+    if env_name == '':
+        env_name = policy.info['env_name']
 
     # Prepare params.
     params = config.DEFAULT_PARAMS
@@ -39,7 +41,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     eval_params = {
         'exploit': True,
         'use_target_net': params['test_with_polyak'],
-        'compute_Q': True,
+        'compute_Q': False,
         'rollout_batch_size': 1,
         'render': bool(render),
     }
@@ -47,7 +49,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
     for name in ['T', 'gamma', 'noise_eps', 'random_eps']:
         eval_params[name] = params[name]
     
-    evaluator = RolloutStudent(params['make_env'], policy, dims, logger, **eval_params)
+    evaluator = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
     evaluator.seed(seed)
 
     # Run evaluation.
@@ -57,7 +59,7 @@ def main(policy_file, seed, n_test_rollouts, render, level, dimo):
         evaluator.increase_difficulty()
 
     for _ in range(n_test_rollouts):
-        evaluator.generate_rollouts(render=True, test=False, compute_Attention=False)
+        evaluator.generate_rollouts(render=True, test=True, exploit=True)
 
     # record logs
     for key, val in evaluator.logs('test'):

@@ -5,12 +5,12 @@ import os
 import gym
 
 from baselines import logger
-from ddpg import DDPG
+from pggd import PGGD
 from baselines.her.her import make_sample_her_transitions
 
 
 DEFAULT_ENV_PARAMS = {
-    'FetchReach-v0': {
+    'FetchReach-v1': {
         'n_cycles': 10,
     },
 }
@@ -19,16 +19,13 @@ DEFAULT_ENV_PARAMS = {
 DEFAULT_PARAMS = {
     # env
     'max_u': 1.,  # max absolute value of actions on different coordinates
-    # ddpg
+    # pggd
     'layers': 3,  # number of layers in the critic/actor networks
     'hidden': 256,  # number of neurons in each hidden layers
-    # 'network_class': 'baselines.her.actor_critic:ActorCritic',
-    # 'network_class': 'gym_blocks.actor_critic:SimpleAttentionActorCritic',
-    # 'network_class': 'gym_blocks.actor_critic:AttentionActorCritic',
-    # 'network_class': 'gym_blocks.actor_critic:ActorCritic',
+    # 'network_class': 'gym_blocks.policy_gradient.policy_network:GaussianPolicy',
     'network_class': 'gym_blocks.policy_gradient.policy_network:AttentionGaussianPolicy',
     'Q_lr': 0.002, # critic learning rate
-    'pi_lr': 0.002,  # actor learning rate
+    'pi_lr': 0.001,  # actor learning rate
     'buffer_size': int(1E6),  # for experience replay
     'polyak': 0.95,  # polyak averaging coefficient
     'action_l2': 1.0,  # quadratic penalty on actions (before rescaling by max_u)
@@ -51,6 +48,10 @@ DEFAULT_PARAMS = {
     # normalization
     'norm_eps': 0.01,  # epsilon used for observation normalization
     'norm_clip': 5,  # normalized observations are cropped to this values
+    # -----------------
+    'annealing_coeff': 50.0,
+    'beta_final': 0.0      # percentage of time that the expert policy is used
+    # -----------------
 }
 
 
@@ -68,8 +69,8 @@ def cached_make_env(make_env):
 
 
 def prepare_params(kwargs):
-    # DDPG params
-    ddpg_params = dict()
+    # PGGD params
+    pggd_params = dict()
 
     env_name = kwargs['env_name']
     def make_env():
@@ -91,10 +92,10 @@ def prepare_params(kwargs):
                  'batch_size', 'Q_lr', 'pi_lr',
                  'norm_eps', 'norm_clip', 'max_u',
                  'action_l2', 'clip_obs', 'scope', 'relative_goals']:
-        ddpg_params[name] = kwargs[name]
+        pggd_params[name] = kwargs[name]
         kwargs['_' + name] = kwargs[name]
         del kwargs[name]
-    kwargs['ddpg_params'] = ddpg_params
+    kwargs['pggd_params'] = pggd_params
 
     return kwargs
 
@@ -128,19 +129,19 @@ def simple_goal_subtract(a, b):
     return a - b
 
 
-def configure_ddpg(dims, params, reuse=False, use_mpi=True, clip_return=True):
+def configure_pggd(dims, params, reuse=False, use_mpi=True, clip_return=True):
     sample_her_transitions = configure_her(params)
     # Extract relevant parameters.
     gamma = params['gamma']
     rollout_batch_size = params['rollout_batch_size']
-    ddpg_params = params['ddpg_params']
+    pggd_params = params['pggd_params']
 
     input_dims = dims.copy()
 
-    # DDPG agent
+    # PGGD agent
     env = cached_make_env(params['make_env'])
     env.reset()
-    ddpg_params.update({'input_dims': input_dims,  # agent takes an input observations
+    pggd_params.update({'input_dims': input_dims,  # agent takes an input observations
                         'T': params['T'],
                         'clip_pos_returns': True,  # clip positive returns
                         'clip_return': (1. / (1. - gamma)) if clip_return else np.inf,  # max abs of return
@@ -149,10 +150,10 @@ def configure_ddpg(dims, params, reuse=False, use_mpi=True, clip_return=True):
                         'sample_transitions': sample_her_transitions,
                         'gamma': gamma,
                         })
-    ddpg_params['info'] = {
+    pggd_params['info'] = {
         'env_name': params['env_name'],
     }
-    policy = DDPG(reuse=reuse, **ddpg_params, use_mpi=use_mpi)
+    policy = PGGD(reuse=reuse, **pggd_params, use_mpi=use_mpi)
     return policy
 
 
@@ -167,17 +168,14 @@ def configure_dims(params):
         'u': env.action_space.shape[0],
         'g': obs['desired_goal'].shape[0],
     }
-
-    # # ------------
-    # if 'Variation' in params['env_name']:
-    #     print("Found Variation in env name")
-    #     dims['o'] -= 1
-    # # ------------
-
     for key, value in info.items():
         value = np.array(value)
         if value.ndim == 0:
             value = value.reshape(1)
         dims['info_{}'.format(key)] = value.shape[0]
-    # DDPG.DIMO = dims['o']
+    # -------------------
+    # Very hacky way of fixing things
+    # The network should be able to work on environments with different number of blocks
+    PGGD.DIMO = dims['o']
+    # -------------------
     return dims

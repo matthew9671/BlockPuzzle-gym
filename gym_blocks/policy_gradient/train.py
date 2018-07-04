@@ -26,18 +26,19 @@ def mpi_average(value):
     return mpi_moments(np.array(value))[0]
 
 
-def train(policy, rollout_worker, evaluator,
+def train(policy, rollout_worker, examiner, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_policies, render, level, max_test, train_render, **kwargs):
-    if level > 0:
+          save_policies, render, level, curriculum, max_test, train_render, **kwargs):
+
+    if curriculum and level > 0:
         l = level
         for i in range(l):
         
             level = rollout_worker.increase_difficulty()
             evaluator.increase_difficulty()
+            examiner.increase_difficulty()
             if level != None:
                 logger.info("Difficulty increased to level {}!".format(level))
-
 
     rank = MPI.COMM_WORLD.Get_rank()
 
@@ -47,6 +48,12 @@ def train(policy, rollout_worker, evaluator,
 
     logger.info("Training...")
     best_success_rate = -1
+
+    # # Warming up the replay memory
+    # for _ in range(20):
+    #     episode = rollout_worker.generate_rollouts()
+    #     policy.store_episode(episode)
+
     for epoch in range(n_epochs):
         # train
         rollout_worker.clear_history()
@@ -55,19 +62,26 @@ def train(policy, rollout_worker, evaluator,
             policy.store_episode(episode)
             for _ in range(n_batches):
                 policy.train()
-            policy.update_target_net()
 
         # test
         logger.info("Start testing!")
         evaluator.clear_history()
         for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts(render=render, test=max_test)
+            evaluator.generate_rollouts(render=render, test=False, exploit=True)
+
+        logger.info("Start final exams!")
+        # final exam
+        examiner.clear_history()
+        for _ in range(n_test_rollouts):
+            examiner.generate_rollouts(render=render, test=True, exploit=True)
 
         # record logs
         logger.record_tabular('epoch', epoch)
+        for key, val in rollout_worker.logs('train'):
+            logger.record_tabular(key, mpi_average(val))
         for key, val in evaluator.logs('test'):
             logger.record_tabular(key, mpi_average(val))
-        for key, val in rollout_worker.logs('train'):
+        for key, val in examiner.logs('finals'):
             logger.record_tabular(key, mpi_average(val))
         for key, val in policy.logs():
             logger.record_tabular(key, mpi_average(val))
@@ -75,26 +89,45 @@ def train(policy, rollout_worker, evaluator,
         if rank == 0:
             logger.dump_tabular()
 
-        # save the policy if it's better than the previous ones
-        success_rate = mpi_average(evaluator.current_success_rate())
-        worker_success_rate = mpi_average(rollout_worker.current_success_rate())
+        rollout_worker.anneal()
 
-        if worker_success_rate >= SUCCESS_THRESHOLD:
+        # save the policy if it's better than the previous ones
+        success_rate = mpi_average(examiner.current_success_rate())
+        test_success_rate = mpi_average(evaluator.current_success_rate())
+
+        # Increase difficulty in curriculum learning
+        if curriculum and test_success_rate >= SUCCESS_THRESHOLD:
             level = rollout_worker.increase_difficulty()
             evaluator.increase_difficulty()
+            examiner.increase_difficulty()
             if level != None:
                 logger.info("Difficulty increased to level {}!".format(level))
-            # evaluator.increase_difficulty()
 
         if rank == 0 and success_rate >= best_success_rate and save_policies:
             best_success_rate = success_rate
             logger.info('New best success rate: {}. Saving policy to {} ...'.format(best_success_rate, best_policy_path))
-            evaluator.save_policy(best_policy_path)
-            evaluator.save_policy(latest_policy_path)
+            rollout_worker.save_policy(best_policy_path)
+            rollout_worker.save_policy(latest_policy_path)
+
+            rollout_worker.save_policy_weights(logger.get_dir())
         if rank == 0 and policy_save_interval > 0 and epoch % policy_save_interval == 0 and save_policies:
             policy_path = periodic_policy_path.format(epoch)
             logger.info('Saving periodic policy to {} ...'.format(policy_path))
-            evaluator.save_policy(policy_path)
+            rollout_worker.save_policy(policy_path)
+
+        # print("Saving and loading!!!")
+
+        # with open(best_policy_path, 'rb') as f:
+        #     policy = pickle.load(f)
+
+        # evaluator.policy = policy
+        # evaluator.clear_history()
+        # for _ in range(n_test_rollouts):
+        #     evaluator.generate_rollouts(render=render, test=False, exploit=True)
+
+        # print("success rate: {}".format(mpi_average(evaluator.current_success_rate())))
+
+        # assert False
 
         # make sure that different threads have different seeds
         local_uniform = np.random.uniform(size=(1,))
@@ -107,7 +140,7 @@ def train(policy, rollout_worker, evaluator,
 def launch(
     env_name, logdir, n_epochs, num_cpu, seed, replay_strategy, policy_save_interval, clip_return,
     override_params={}, save_policies=True, render=False, max_test=True, 
-    policy_file="", weight_file="", level=0, train_render=False
+    expert_file="", policy_file="", level=0, curriculum=True, train_render=False
 ):
     # Fork for multi-CPU MPI implementation.
     if num_cpu > 1:
@@ -159,7 +192,7 @@ def launch(
     dims = config.configure_dims(params)
 
     if policy_file == "":
-        policy = config.configure_ddpg(dims=dims, params=params, clip_return=clip_return)
+        policy = config.configure_pggd(dims=dims, params=params, clip_return=clip_return)
     else:
         # Load policy.
         with open(policy_file, 'rb') as f:
@@ -170,8 +203,11 @@ def launch(
         # print(dir(policy))
         policy.set_obs_size(dims)
 
-    if weight_file != "":
-        policy.load_weights(weight_file)
+    if expert_file != "":
+        with open(expert_file, 'rb') as f:
+            expert = pickle.load(f)
+    else:
+        expert = None
 
     rollout_params = {
         'exploit': False,
@@ -179,13 +215,15 @@ def launch(
         'use_demo_states': True,
         'compute_Q': False,
         'T': params['T'],
+        'beta_final': params['beta_final'],
+        'annealing_coeff': params['annealing_coeff']
     }
 
     eval_params = {
         'exploit': True,
         'use_target_net': params['test_with_polyak'],
         'use_demo_states': False,
-        'compute_Q': True,
+        'compute_Q': False,
         'T': params['T'],
     }
 
@@ -193,37 +231,41 @@ def launch(
         rollout_params[name] = params[name]
         eval_params[name] = params[name]
 
-    rollout_worker = RolloutStudent(params['make_env'], policy, dims, logger, **rollout_params)
+    rollout_worker = RolloutStudent(params['make_env'], policy, expert, dims, logger, **rollout_params)
     rollout_worker.seed(rank_seed)
 
-    evaluator = RolloutStudent(params['make_env'], policy, dims, logger, **eval_params)
+    examiner = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
+    examiner.seed(rank_seed)
+
+    evaluator = RolloutStudent(params['make_env'], policy, None, dims, logger, **eval_params)
     evaluator.seed(rank_seed)
 
     train(
-        logdir=logdir, policy=policy, rollout_worker=rollout_worker,
+        logdir=logdir, policy=policy, rollout_worker=rollout_worker, examiner=examiner,
         evaluator=evaluator, n_epochs=n_epochs, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, save_policies=save_policies,
-        render=render, level=level, max_test=max_test, train_render=train_render)
+        render=render, level=level, curriculum=curriculum, max_test=max_test,
+        train_render=train_render)
 
 
 @click.command()
-@click.option('--env_name', type=str, default='FetchReach-v0', help='the name of the OpenAI Gym environment that you want to train on')
+@click.option('--env_name', type=str, default='FetchReach-v1', help='the name of the OpenAI Gym environment that you want to train on')
 @click.option('--logdir', type=str, default=None, help='the path to where logs and policy pickles should go. If not specified, creates a folder in /tmp/')
 @click.option('--n_epochs', type=int, default=500, help='the number of training epochs to run')
 @click.option('--num_cpu', type=int, default=1, help='the number of CPU cores to use (using MPI)')
 @click.option('--seed', type=int, default=0, help='the random seed used to seed both the environment and the training code')
 @click.option('--policy_save_interval', type=int, default=5, help='the interval with which policy pickles are saved. If set to 0, only the best and latest policy will be pickled.')
-@click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='none', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
+@click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='future', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
-@click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy')
-@click.option('--weight_file', type=str, default='', help='the path of the pre-learned weights')
+@click.option('--expert_file', type=str, default='', help='the path of the pre-learned expert policy')
+@click.option('--policy_file', type=str, default='', help='the path of the pre-learned policy to fine tune')
 @click.option('--render/--no-render', default=False)
 @click.option('--max_test/--no_max_test', default=True)
 @click.option('--level', type=int, default=0, help='starting difficulty')
+@click.option('--curriculum/--no_curriculum', default=False)
 # Debug options
 @click.option('--train_render/--no_train_render', default=False)
-
 def main(**kwargs):
     launch(**kwargs)
 

@@ -8,7 +8,7 @@ ENV_FEATURES = 10
 FEATURE_SIZE = 128
 ATTENTION_CNT = 1
 
-class AttentionActorCritic:
+class AttentionGaussianPolicy:
     @store_args
     def __init__(self, inputs_tf, dimo, dimg, dimu, max_u, o_stats, g_stats, hidden, layers,
                  **kwargs):
@@ -39,6 +39,7 @@ class AttentionActorCritic:
         obs_shape = tf.shape(o)[1]
 
         max_num_blocks = tf.cast((obs_shape - env_size) / block_size, tf.int32)
+        # Number of blocks comes first in the observation
         num_blocks = tf.reshape(tf.slice(o, [0, 0], [-1, 1]), [-1,])
         num_blocks = tf.cast(num_blocks, tf.int32)
         o = tf.slice(o, [0, 1], [-1, -1])
@@ -53,7 +54,7 @@ class AttentionActorCritic:
         #print('######################', input_blocks)
         to_concat = []
 
-        with tf.variable_scope('Q'):
+        with tf.variable_scope('pi'):
             for _ in range(ATTENTION_CNT):
                 block_mlp = [64]
                 obs_blocks = input_blocks
@@ -130,20 +131,50 @@ class AttentionActorCritic:
             gated_obs = tf.concat(axis=1, values=to_concat)
             input_pi = tf.concat(axis=1, values=[obs_env, gated_obs])  # for actor
 
-        # Networks.
+            latent = input_pi
+            # For debugging
+            self.embedding = latent
+
+            for _ in range(self.layers):
+                latent = tf.layers.dense(latent, self.hidden, activation=tf.nn.relu)
+            self.mu_tf = tf.layers.dense(latent, dimu, activation=None)
+            self.sigma_tf = tf.layers.dense(latent, dimu, activation=tf.nn.softplus)
+            self.pg_pi_tf = tf.distributions.Normal(loc=self.mu_tf, scale=self.sigma_tf)
+            self.raw_tf = self.pg_pi_tf.sample()
+            self.a_tf = self.max_u * tf.tanh(self.raw_tf)
+            # Deterministic action
+            self.da_tf = self.max_u * tf.tanh(self.mu_tf)
+            self.a_prob_tf = self.pg_pi_tf.prob(self.u_tf)
+            # print(self.a_prob_tf)
+
+            vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
+            self.saver = tf.train.Saver(vars)
+            # Stop the gradient if we don't want to train the embbeding of the blocks
+            input_pi = tf.stop_gradient(input_pi)
+
+        # Actor critic Networks.
         with tf.variable_scope('pi'):
             self.pi_tf = self.max_u * tf.tanh(nn(
                 input_pi, [self.hidden] * self.layers + [self.dimu]))
         with tf.variable_scope('Q'):
             # for policy training
-            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, self.pi_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[input_pi, self.pi_tf / self.max_u])
             self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
             # for critic training
-            input_Q = tf.concat(axis=1, values=[obs_env, gated_obs, self.u_tf / self.max_u])
+            input_Q = tf.concat(axis=1, values=[input_pi, self.u_tf / self.max_u])
             self._input_Q = input_Q  # exposed for tests
             self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
 
-class SimpleAttentionActorCritic:
+    def save_weights(self, sess, path):
+        print("Saving weights!")
+        self.saver.save(sess, "{}/weights".format(path))
+
+    def load_weights(self, sess, path):
+        print("Loading weights!")
+        self.saver.restore(sess, path)
+
+
+class GaussianPolicy:
     @store_args
     def __init__(self, inputs_tf, dimo, dimg, dimu, max_u, o_stats, g_stats, hidden, layers,
                  **kwargs):
@@ -170,86 +201,28 @@ class SimpleAttentionActorCritic:
         o = self.o_stats.normalize(self.o_tf)
         g = self.g_stats.normalize(self.g_tf)
 
-        num_blocks = (o.get_shape().as_list()[1] - ENV_FEATURES) // BLOCK_FEATURES
-
-        obs_env = tf.slice(o, [0, 0], [-1, ENV_FEATURES])
-        obs_blocks = tf.slice(o, [0, ENV_FEATURES], [-1, -1])
-    
-        batch_size = tf.shape(obs_blocks)[0]
-
-        print(obs_blocks)
-
-        with tf.variable_scope('pi'):
-            # (?, b)
-            # hidden = tf.layers.dense(obs_blocks, FEATURE_SIZE, activation=tf.nn.relu)
-            # attention_weights = tf.layers.dense(hidden, num_blocks, activation=tf.sigmoid)
-            attention_weights = tf.layers.dense(obs_blocks, num_blocks, activation=tf.tanh)
-            self.block_weights = attention_weights
-            # (?, b, f)
-            input_blocks = tf.reshape(obs_blocks, [-1, num_blocks, BLOCK_FEATURES]) 
-            # (?, b, 1)
-            weights = tf.expand_dims(attention_weights, 2)
-            # (?, b, f)
-            weights = tf.tile(weights, [1, 1, BLOCK_FEATURES])
-            weighted = weights * input_blocks
-            # (?, b * f)
-            gated_obs = tf.reshape(weighted, [-1, num_blocks * BLOCK_FEATURES])
-            print(gated_obs)
-            input_pi = tf.concat(axis=1, values=[obs_env, gated_obs])  # for actor
-
-        # Networks.
-        # with tf.variable_scope('pi'):
-            self.pi_tf = self.max_u * tf.tanh(nn(
-                input_pi, [self.hidden] * self.layers + [self.dimu]))
-        with tf.variable_scope('Q'):
-            # for policy training
-            input_Q = tf.concat(axis=1, values=[o, g, self.pi_tf / self.max_u])
-            self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
-            # for critic training
-            input_Q = tf.concat(axis=1, values=[o, g, self.u_tf / self.max_u])
-            self._input_Q = input_Q  # exposed for tests
-            self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
-
-class ActorCritic:
-    @store_args
-    def __init__(self, inputs_tf, dimo, dimg, dimu, max_u, o_stats, g_stats, hidden, layers,
-                 **kwargs):
-        """The actor-critic network and related training code.
-
-        Args:
-            inputs_tf (dict of tensors): all necessary inputs for the network: the
-                observation (o), the goal (g), and the action (u)
-            dimo (int): the dimension of the observations
-            dimg (int): the dimension of the goals
-            dimu (int): the dimension of the actions
-            max_u (float): the maximum magnitude of actions; action outputs will be scaled
-                accordingly
-            o_stats (baselines.her.Normalizer): normalizer for observations
-            g_stats (baselines.her.Normalizer): normalizer for goals
-            hidden (int): number of hidden units that should be used in hidden layers
-            layers (int): number of hidden layers
-        """
-        self.o_tf = inputs_tf['o']
-        self.g_tf = inputs_tf['g']
-        self.u_tf = inputs_tf['u']
-
-        # o = self.o_tf
-        # o = tf.slice(o, [0, 1], [-1, -1])
-        # o = self.o_stats.normalize(o)
-        # Prepare inputs for actor and critic.
-        o = self.o_stats.normalize(self.o_tf)
-        g = self.g_stats.normalize(self.g_tf)
-        input_pi = o#tf.concat(axis=1, values=[o, g])  # for actor
-
         # Networks.
         with tf.variable_scope('pi'):
-            self.raw_tf = nn(input_pi, [self.hidden] * self.layers + [self.dimu])
-            self.pi_tf = self.max_u * tf.tanh(self.raw_tf)
-        with tf.variable_scope('Q'):
-            # for policy training
-            input_Q = tf.concat(axis=1, values=[o, self.pi_tf / self.max_u])
-            self.Q_pi_tf = nn(input_Q, [self.hidden] * self.layers + [1])
-            # for critic training
-            input_Q = tf.concat(axis=1, values=[o, self.u_tf / self.max_u])
-            self._input_Q = input_Q  # exposed for tests
-            self.Q_tf = nn(input_Q, [self.hidden] * self.layers + [1], reuse=True)
+            latent = o#tf.concat(axis=1, values=[o, g])
+            for _ in range(self.layers):
+                latent = tf.layers.dense(latent, self.hidden, activation=tf.nn.relu)
+            self.mu_tf = tf.layers.dense(latent, dimu, activation=None)
+            self.sigma_tf = tf.layers.dense(latent, dimu, activation=tf.nn.softplus)
+            self.pi_tf = tf.distributions.Normal(loc=self.mu_tf, scale=self.sigma_tf)
+            self.raw_tf = self.pi_tf.sample()
+            self.a_tf = self.max_u * tf.tanh(self.raw_tf)
+            # Deterministic action
+            self.da_tf = self.max_u * tf.tanh(self.mu_tf)
+            self.a_prob_tf = self.pi_tf.prob(self.u_tf)
+            # print(self.a_prob_tf)
+
+            vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.scope)
+            self.saver = tf.train.Saver(vars)
+
+    def save_weights(self, sess, path):
+        print("Saving weights!")
+        self.saver.save(sess, "{}/weights".format(path))
+
+    def load_weights(self, sess, path):
+        print("Loading weights!")
+        self.saver.restore(sess, path)
